@@ -17,10 +17,10 @@ export async function createClient() {
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(items) {
+        setAll(items: { name: string; value: string; options?: CookieOptions }[]) {
           try {
             items.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options as CookieOptions)
+              cookieStore.set(name, value, options)
             );
           } catch {
             /* called from a Server Component — cookies are read-only here */
