@@ -26,11 +26,19 @@ function b64url(buf: ArrayBuffer | Uint8Array) {
   return btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function b64urlDecode(s: string): Uint8Array {
+function b64urlDecode(s: string): Uint8Array<ArrayBuffer> {
+  // Important: build the Uint8Array on top of an explicit ArrayBuffer so the
+  // result is `Uint8Array<ArrayBuffer>` (not `Uint8Array<ArrayBufferLike>`).
+  // TypeScript 5.7+ narrows `BufferSource` (used by crypto.subtle.verify) to
+  // `ArrayBuffer | ArrayBufferView<ArrayBuffer>`, and `Uint8Array.from` infers
+  // the loose `ArrayBufferLike` variant which is not assignable.
   s = s.replace(/-/g, "+").replace(/_/g, "/");
   while (s.length % 4) s += "=";
   const bin = atob(s);
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const buf = new ArrayBuffer(bin.length);
+  const arr = new Uint8Array(buf);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
 }
 
 async function hmacKey(secret: string) {
