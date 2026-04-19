@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="760" height="180" viewBox="0 0 760 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">WeGoTwo wordmark primary</title>
+  <desc id="desc">Primary WeGoTwo wordmark with graphite WeGo and blue Two.</desc>
+  <defs>
+    <linearGradient id="twoBlue" x1="250" y1="42" x2="450" y2="135" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3478F6"/>
+      <stop offset="1" stop-color="#0057D9"/>
+    </linearGradient>
+  </defs>
+
+  <text x="32" y="120"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, SF Pro Display, Segoe UI, Arial, sans-serif"
+        font-size="88"
+        font-weight="760"
+        letter-spacing="-3.1"
+        fill="#3A3F47">WeGo</text>
+
+  <text x="300" y="120"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, SF Pro Display, Segoe UI, Arial, sans-serif"
+        font-size="88"
+        font-weight="820"
+        letter-spacing="-3.6"
+        fill="url(#twoBlue)">Two</text>
+</svg>
