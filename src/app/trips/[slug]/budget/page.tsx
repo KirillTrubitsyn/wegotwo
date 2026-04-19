@@ -194,12 +194,20 @@ export default async function BudgetPage({
         />
       </div>
 
-      <Link
-        href={`/trips/${trip.slug}/budget/new`}
-        className="fixed bottom-[max(72px,calc(env(safe-area-inset-bottom)+72px))] left-1/2 -translate-x-1/2 w-[calc(100%-40px)] max-w-[440px] bg-text-main text-white rounded-btn py-[14px] text-[15px] font-medium text-center shadow-float active:opacity-85"
-      >
-        + Расход
-      </Link>
+      <div className="fixed bottom-[max(72px,calc(env(safe-area-inset-bottom)+72px))] left-1/2 -translate-x-1/2 w-[calc(100%-40px)] max-w-[440px] flex gap-2">
+        <Link
+          href={`/trips/${trip.slug}/budget/scan`}
+          className="flex-1 bg-white border border-black/[0.08] text-text-main rounded-btn py-[14px] text-[15px] font-medium text-center shadow-float active:bg-bg-surface"
+        >
+          📸 Скан
+        </Link>
+        <Link
+          href={`/trips/${trip.slug}/budget/new`}
+          className="flex-1 bg-text-main text-white rounded-btn py-[14px] text-[15px] font-medium text-center shadow-float active:opacity-85"
+        >
+          + Расход
+        </Link>
+      </div>
 
       <BottomNav slug={trip.slug} />
     </>
