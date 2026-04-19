@@ -6,6 +6,11 @@ const nextConfig = {
       bodySizeLimit: "12mb",
     },
   },
+  outputFileTracingIncludes: {
+    "/api/admin/seed/europe-2026": [
+      "./src/seed/europe-2026/photos/**/*",
+    ],
+  },
   images: {
     remotePatterns: [
       {

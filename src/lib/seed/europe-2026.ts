@@ -13,6 +13,12 @@ import flights from "@/seed/europe-2026/flights.json";
 import stays from "@/seed/europe-2026/stays.json";
 import type { SeedReport } from "./types";
 import { destinations as euroDestinations } from "@/seed/europe-2026/destinations";
+import {
+  SEED_PLACES,
+  SEED_CITY_COVERS,
+  type SeedPlace,
+} from "@/seed/europe-2026/places";
+import { uploadSeedPhotos } from "./upload-photos";
 
 type SimpleObject = Record<string, unknown>;
 
@@ -300,7 +306,34 @@ export async function seedEurope2026(
     dayByDate.set(row.date, row.id);
   }
 
-  // 5. Events from timelines.paris/berlin/switzerland/home.
+  // 5a. Upload seed photos to Storage (cities + places) before
+  //     anything that references them. Uploads are idempotent
+  //     because we use upsert: true on the same trip-scoped path.
+  const allPhotoFiles: Array<{ prefix: "places" | "cities"; file: string }> = [
+    ...SEED_CITY_COVERS.map((c) => ({
+      prefix: "cities" as const,
+      file: c.photoFile,
+    })),
+    ...SEED_PLACES.map((p) => ({
+      prefix: "places" as const,
+      file: p.photoFile,
+    })),
+  ];
+  const photoPathByFile = await uploadSeedPhotos(admin, tripId, allPhotoFiles);
+
+  // 5b. Attach city covers to destinations.
+  for (const cover of SEED_CITY_COVERS) {
+    const destId = destIdBySeedId.get(cover.destinationSeedId);
+    const storagePath = photoPathByFile.get(cover.photoFile);
+    if (!destId || !storagePath) continue;
+    const { error } = await admin
+      .from("destinations")
+      .update({ photo_path: storagePath })
+      .eq("id", destId);
+    if (error) throw error;
+  }
+
+  // 5c. Events from timelines.paris/berlin/switzerland/home.
   type TimelineEvent = {
     id: string;
     time?: string;
@@ -339,10 +372,30 @@ export async function seedEurope2026(
           notes: ev.detail ?? null,
           kind: EVENT_KIND_MAP[ev.type ?? "other"] ?? "other",
           sort_order: idx,
+          photo_path: null,
+          website: null,
+          menu_url: null,
+          phone: null,
+          emoji: null,
+          address: null,
+          map_url: null,
         });
       });
     }
   }
+
+  // 5d. Place events (restaurants / sights / services) pulled from
+  //     SEED_PLACES. Sort_order is high (50+) so itinerary events
+  //     stay at the top of each day.
+  for (const place of SEED_PLACES) {
+    const dayId = dayByDate.get(place.dayDate);
+    if (!dayId) continue;
+    const hhmm = parseLeadingTime(place.time);
+    const startAt = hhmm ? toUtcIso(place.dayDate, hhmm, TRIP_TZ) : null;
+    const photoPath = photoPathByFile.get(place.photoFile) ?? null;
+    eventRows.push(buildPlaceEventRow(tripId, dayId, place, startAt, photoPath));
+  }
+
   if (eventRows.length > 0) {
     const { error } = await admin.from("events").insert(eventRows);
     if (error) throw error;
@@ -535,6 +588,31 @@ type BuildExpenseArgs = {
   currency: string;
   username: string;
 };
+
+function buildPlaceEventRow(
+  tripId: string,
+  dayId: string,
+  place: SeedPlace,
+  startAt: string | null,
+  photoPath: string | null
+): SimpleObject {
+  return {
+    trip_id: tripId,
+    day_id: dayId,
+    start_at: startAt,
+    title: place.title,
+    notes: place.notes,
+    kind: place.kind,
+    sort_order: place.sortOrder,
+    photo_path: photoPath,
+    website: place.website ?? null,
+    menu_url: place.menuUrl ?? null,
+    phone: place.phone ?? null,
+    emoji: place.emoji,
+    address: place.address,
+    map_url: place.mapUrl,
+  };
+}
 
 function buildExpense(a: BuildExpenseArgs): SimpleObject {
   // The seed sidesteps historic FX lookup: we record amount_original

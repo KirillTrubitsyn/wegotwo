@@ -84,6 +84,39 @@ export default async function TripOverviewPage({
     evtCounts.set(r.day_id, (evtCounts.get(r.day_id) ?? 0) + 1);
   }
 
+  // Destinations with cover photos (shown as city tiles).
+  const { data: destRows } = await admin
+    .from("destinations")
+    .select("id,name,country,flag_code,date_from,date_to,photo_path,sort_order")
+    .eq("trip_id", trip.id)
+    .not("photo_path", "is", null)
+    .order("sort_order", { ascending: true });
+  const destinations = (destRows ?? []) as Array<{
+    id: string;
+    name: string;
+    country: string | null;
+    flag_code: string | null;
+    date_from: string | null;
+    date_to: string | null;
+    photo_path: string | null;
+  }>;
+  const destPhotoPaths = destinations
+    .map((d) => d.photo_path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  let destPhotoByPath = new Map<string, string>();
+  if (destPhotoPaths.length > 0) {
+    const { data: signed } = await admin.storage
+      .from("photos")
+      .createSignedUrls(destPhotoPaths, 3600);
+    destPhotoByPath = new Map(
+      (signed ?? [])
+        .map((s, i) => [destPhotoPaths[i], s.signedUrl] as const)
+        .filter((pair): pair is readonly [string, string] =>
+          typeof pair[1] === "string" && pair[1].length > 0
+        )
+    );
+  }
+
   const previewStart = Math.max(
     0,
     allDays.findIndex((d) => d.date >= today)
@@ -131,6 +164,60 @@ export default async function TripOverviewPage({
               Заполните маршрут в редакторе поездки.
             </div>
           </div>
+        )}
+
+        {destinations.length > 0 && (
+          <section>
+            <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-3">
+              Города маршрута
+            </h2>
+            <div className="grid grid-cols-2 gap-[10px]">
+              {destinations.map((d) => {
+                const photoUrl = d.photo_path
+                  ? destPhotoByPath.get(d.photo_path)
+                  : null;
+                const range =
+                  d.date_from && d.date_to
+                    ? `${format(parseISO(d.date_from), "d MMM", {
+                        locale: ru,
+                      })} — ${format(parseISO(d.date_to), "d MMM", {
+                        locale: ru,
+                      })}`
+                    : null;
+                return (
+                  <div
+                    key={d.id}
+                    className="relative rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[4/5]"
+                  >
+                    {photoUrl && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={photoUrl}
+                        alt={d.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-3 text-white">
+                      <div className="flex items-center gap-[6px] text-[11px] opacity-90 mb-[2px]">
+                        {d.flag_code && <span>{d.flag_code}</span>}
+                        {d.country && <span>{d.country}</span>}
+                      </div>
+                      <div className="text-[15px] font-semibold leading-tight">
+                        {d.name}
+                      </div>
+                      {range && (
+                        <div className="text-[11px] opacity-85 mt-[2px] tnum">
+                          {range}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {allDays.length > 0 && (

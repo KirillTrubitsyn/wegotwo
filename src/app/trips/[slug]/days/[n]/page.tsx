@@ -38,6 +38,12 @@ type EventRow = {
   kind: string;
   notes: string | null;
   map_url: string | null;
+  website: string | null;
+  menu_url: string | null;
+  phone: string | null;
+  emoji: string | null;
+  address: string | null;
+  photo_path: string | null;
   start_at: string | null;
   end_at: string | null;
   sort_order: number | null;
@@ -82,18 +88,44 @@ export default async function DayDetailPage({
 
   const { data: eventsData } = await admin
     .from("events")
-    .select("id,title,kind,notes,map_url,start_at,end_at,sort_order")
+    .select(
+      "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+    )
     .eq("day_id", day.id)
     .order("sort_order", { ascending: true });
 
-  const events: TimelineEvent[] = (
-    (eventsData ?? []) as EventRow[]
-  ).map((e) => ({
+  const rawEvents = (eventsData ?? []) as EventRow[];
+
+  // Batch signed URLs for all photo_path values on this day.
+  const photoPaths = rawEvents
+    .map((e) => e.photo_path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  let photoUrlByPath = new Map<string, string>();
+  if (photoPaths.length > 0) {
+    const { data: signed } = await admin.storage
+      .from("photos")
+      .createSignedUrls(photoPaths, 3600);
+    photoUrlByPath = new Map(
+      (signed ?? [])
+        .map((s, i) => [photoPaths[i], s.signedUrl] as const)
+        .filter((pair): pair is readonly [string, string] =>
+          typeof pair[1] === "string" && pair[1].length > 0
+        )
+    );
+  }
+
+  const events: TimelineEvent[] = rawEvents.map((e) => ({
     id: e.id,
     title: e.title,
     kind: e.kind,
     notes: e.notes,
     map_url: e.map_url,
+    website: e.website,
+    menu_url: e.menu_url,
+    phone: e.phone,
+    emoji: e.emoji,
+    address: e.address,
+    photo_url: e.photo_path ? photoUrlByPath.get(e.photo_path) ?? null : null,
     start_time: formatTimeInTz(e.start_at, trip.primary_tz),
     end_time: formatTimeInTz(e.end_at, trip.primary_tz),
   }));
