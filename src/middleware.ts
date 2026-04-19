@@ -26,25 +26,39 @@ function isPublic(pathname: string) {
   return false;
 }
 
+function redirectToUnlock(req: NextRequest, from: string) {
+  const url = req.nextUrl.clone();
+  url.pathname = "/unlock";
+  url.searchParams.set("next", from);
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (isPublic(pathname)) return NextResponse.next();
 
-  const token = req.cookies.get(UNLOCK_COOKIE_NAME)?.value;
-  const payload = await verifyToken(token);
+  try {
+    if (isPublic(pathname)) return NextResponse.next();
 
-  if (!payload) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/unlock";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    const token = req.cookies.get(UNLOCK_COOKIE_NAME)?.value;
+    if (!token) return redirectToUnlock(req, pathname);
+
+    const payload = await verifyToken(token);
+    if (!payload) return redirectToUnlock(req, pathname);
+
+    const res = NextResponse.next();
+    res.headers.set("x-wgt-user", payload.u);
+    return res;
+  } catch (err) {
+    // Never let middleware throw: surface to /unlock so the user sees the
+    // access form instead of Vercel's generic 404.
+    console.error("[wgt/middleware] error:", err);
+    return redirectToUnlock(req, pathname);
   }
-
-  const res = NextResponse.next();
-  res.headers.set("x-wgt-user", payload.u);
-  return res;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|_next/data).*)"],
+  matcher: [
+    // Run on everything except Next internals, static files and favicon.
+    "/((?!_next/static|_next/image|_next/data|favicon.ico|.*\\.[a-zA-Z0-9]+$).*)",
+  ],
 };
