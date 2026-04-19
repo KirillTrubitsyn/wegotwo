@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import Header from "@/components/Header";
 import OfflineBanner from "@/components/OfflineBanner";
 import TripCard from "@/components/TripCard";
@@ -157,8 +158,8 @@ function Grid({ children }: { children: React.ReactNode }) {
 function EmptyState() {
   return (
     <div className="rounded-card bg-white shadow-card p-6 text-center mt-4">
-      <div className="text-[28px] mb-2" aria-hidden>
-        🗺
+      <div className="inline-flex items-center justify-center w-[72px] h-[72px] rounded-[18px] bg-bg-surface mb-3">
+        <Image src="/logo.png" alt="WeGoTwo" width={56} height={56} priority />
       </div>
       <p className="text-text-main font-medium text-[16px]">
         Поездок пока нет

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { submitUnlock } from "./actions";
 
 export const metadata: Metadata = {
@@ -25,8 +26,14 @@ export default async function UnlockPage({
     <main className="min-h-[100svh] flex items-center justify-center px-6 py-10 bg-bg-surface">
       <div className="w-full max-w-[360px]">
         <div className="text-center mb-8">
-          <div className="text-[40px] mb-2" aria-hidden>
-            ✈
+          <div className="inline-flex items-center justify-center w-[88px] h-[88px] rounded-[22px] bg-white shadow-avatar mb-3">
+            <Image
+              src="/logo.png"
+              alt="WeGoTwo"
+              width={72}
+              height={72}
+              priority
+            />
           </div>
           <h1 className="font-semibold text-[22px] tracking-tight text-text-main">
             WeGoTwo
