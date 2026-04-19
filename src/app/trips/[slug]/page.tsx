@@ -184,10 +184,19 @@ export default async function TripOverviewPage({
                         locale: ru,
                       })}`
                     : null;
+                const flag = d.flag_code
+                  ? String.fromCodePoint(
+                      0x1f1e6 + d.flag_code.toUpperCase().charCodeAt(0) - 65
+                    ) +
+                    String.fromCodePoint(
+                      0x1f1e6 + d.flag_code.toUpperCase().charCodeAt(1) - 65
+                    )
+                  : null;
                 return (
-                  <div
+                  <Link
                     key={d.id}
-                    className="relative rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[4/5]"
+                    href={`/trips/${trip.slug}/destinations/${d.id}`}
+                    className="relative rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[4/5] active:opacity-90"
                   >
                     {photoUrl && (
                       /* eslint-disable-next-line @next/next/no-img-element */
@@ -201,7 +210,7 @@ export default async function TripOverviewPage({
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 p-3 text-white">
                       <div className="flex items-center gap-[6px] text-[11px] opacity-90 mb-[2px]">
-                        {d.flag_code && <span>{d.flag_code}</span>}
+                        {flag && <span className="text-[14px]">{flag}</span>}
                         {d.country && <span>{d.country}</span>}
                       </div>
                       <div className="text-[15px] font-semibold leading-tight">
@@ -213,7 +222,7 @@ export default async function TripOverviewPage({
                         </div>
                       )}
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
