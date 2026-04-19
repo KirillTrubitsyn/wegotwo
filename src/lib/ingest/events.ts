@@ -34,6 +34,50 @@ type TripCtx = { id: string; primary_tz: string };
  * string has no offset. Gemini typically returns naive local times
  * like "2026-05-01T02:55" — we assume those are in the trip TZ.
  */
+function localDateInTz(d: Date, tz: string): string {
+  // en-CA yields YYYY-MM-DD regardless of locale; split out year/month/day
+  // via Intl parts so we never rely on Date(...) parsing locale strings.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const day = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Compute the offset (minutes) of `tz` relative to UTC at the moment `d`.
+ * Positive means ahead of UTC. Uses Intl to avoid `new Date(localeString)`
+ * which is not reliably parseable in Node.
+ */
+function tzOffsetMinutes(d: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(d);
+  const get = (t: string) =>
+    Number(parts.find((p) => p.type === t)?.value ?? "0");
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  let h = get("hour");
+  if (h === 24) h = 0; // Intl sometimes emits "24"
+  const mi = get("minute");
+  const se = get("second");
+  const asUtc = Date.UTC(y, mo - 1, da, h, mi, se);
+  return (asUtc - d.getTime()) / 60000;
+}
+
 function normalizeDateTime(
   raw: string | null,
   tz: string
@@ -46,24 +90,15 @@ function normalizeDateTime(
   if (/[+-]\d{2}:?\d{2}$|Z$/.test(s)) {
     const d = new Date(s);
     if (isNaN(d.getTime())) return null;
-    const localDate = new Date(d.toLocaleString("en-CA", { timeZone: tz }))
-      .toISOString()
-      .slice(0, 10);
-    return { localDate, iso: d.toISOString() };
+    return { localDate: localDateInTz(d, tz), iso: d.toISOString() };
   }
 
   // Naive local → treat as tz-local and derive the UTC instant.
-  const [datePart, timePart] = s.split("T");
-  const hhmm = timePart.slice(0, 5);
-  const probe = new Date(`${s}Z`); // pretend UTC
+  const datePart = s.slice(0, 10);
+  const probe = new Date(`${s}Z`); // pretend the naive string is UTC
   if (isNaN(probe.getTime())) return null;
-  const tzOffsetMin = (() => {
-    // Compute offset by formatting `probe` in tz and comparing to UTC.
-    const inTz = new Date(probe.toLocaleString("en-US", { timeZone: tz }));
-    const inUtc = new Date(probe.toLocaleString("en-US", { timeZone: "UTC" }));
-    return (inUtc.getTime() - inTz.getTime()) / 60000;
-  })();
-  const utc = new Date(probe.getTime() + tzOffsetMin * 60000);
+  const offsetMin = tzOffsetMinutes(probe, tz);
+  const utc = new Date(probe.getTime() - offsetMin * 60000);
   return {
     localDate: datePart,
     iso: utc.toISOString(),
