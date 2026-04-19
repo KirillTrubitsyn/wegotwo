@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav";
 import RouteCard from "@/components/RouteCard";
 import DayCard from "@/components/DayCard";
 import OfflineBanner from "@/components/OfflineBanner";
+import CityTabs, { type CityTab } from "@/components/CityTabs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
@@ -84,22 +85,39 @@ export default async function TripOverviewPage({
     evtCounts.set(r.day_id, (evtCounts.get(r.day_id) ?? 0) + 1);
   }
 
-  // Destinations with cover photos (shown as city tiles).
+  // Destinations (stay + home) — used both for the city tabs at the top
+  // and for the list of city tiles below. We show tiles only for stays
+  // that carry a cover photo.
   const { data: destRows } = await admin
     .from("destinations")
-    .select("id,name,country,flag_code,date_from,date_to,photo_path,sort_order")
+    .select(
+      "id,name,country,flag_code,type,date_from,date_to,photo_path,sort_order"
+    )
     .eq("trip_id", trip.id)
-    .not("photo_path", "is", null)
+    .in("type", ["stay", "home"])
     .order("sort_order", { ascending: true });
-  const destinations = (destRows ?? []) as Array<{
+  const allStayHome = (destRows ?? []) as Array<{
     id: string;
     name: string;
     country: string | null;
     flag_code: string | null;
+    type: "stay" | "home" | string | null;
     date_from: string | null;
     date_to: string | null;
     photo_path: string | null;
+    sort_order: number | null;
   }>;
+  const cityTabs: CityTab[] = allStayHome.map((d) => ({
+    id: d.id,
+    name: d.name,
+    flagCode: d.flag_code,
+    type: d.type,
+    sortOrder: d.sort_order,
+    dateFrom: d.date_from,
+  }));
+  const destinations = allStayHome.filter(
+    (d) => d.type === "stay" && d.photo_path
+  );
   const destPhotoPaths = destinations
     .map((d) => d.photo_path)
     .filter((p): p is string => typeof p === "string" && p.length > 0);
@@ -147,9 +165,66 @@ export default async function TripOverviewPage({
       />
 
       <div className="px-5 pb-32 pt-4 space-y-4">
+        {cityTabs.length > 1 && (
+          <CityTabs slug={trip.slug} tabs={cityTabs} activeId={null} />
+        )}
+
         <div className="text-[13px] text-text-sec tnum">{rangeLabel}</div>
 
-        {trip.route_summary ? (
+        {(destinations.length > 0 || allDays.length > 0) && (
+          <div className="bg-bg-surface rounded-card p-[4px] flex">
+            <span className="flex-1 text-center py-[9px] text-[13px] font-semibold rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)] text-text-main">
+              Города
+            </span>
+            <Link
+              href={`/trips/${trip.slug}/days`}
+              className="flex-1 text-center py-[9px] text-[13px] font-medium rounded-[10px] text-text-sec hover:text-text-main"
+            >
+              Маршрут
+            </Link>
+          </div>
+        )}
+
+        {destinations.length > 0 ? (
+          <section>
+            <div className="space-y-[12px]">
+              {destinations.map((d) => {
+                const photoUrl = d.photo_path
+                  ? destPhotoByPath.get(d.photo_path)
+                  : null;
+                const range = formatCityRange(d.date_from, d.date_to);
+                return (
+                  <Link
+                    key={d.id}
+                    href={`/trips/${trip.slug}/destinations/${d.id}`}
+                    className="relative block rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[16/9] active:opacity-90"
+                  >
+                    {photoUrl && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={photoUrl}
+                        alt={d.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />
+                    <div className="absolute right-4 bottom-3 text-right text-white">
+                      <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+                        {d.name}
+                      </div>
+                      {range && (
+                        <div className="text-[12px] opacity-95 mt-[2px] tnum drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
+                          {range}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        ) : trip.route_summary ? (
           <RouteCard
             title={trip.route_summary}
             summary={trip.country ?? undefined}
@@ -164,69 +239,6 @@ export default async function TripOverviewPage({
               Заполните маршрут в редакторе поездки.
             </div>
           </div>
-        )}
-
-        {destinations.length > 0 && (
-          <section>
-            <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-3">
-              Города маршрута
-            </h2>
-            <div className="grid grid-cols-2 gap-[10px]">
-              {destinations.map((d) => {
-                const photoUrl = d.photo_path
-                  ? destPhotoByPath.get(d.photo_path)
-                  : null;
-                const range =
-                  d.date_from && d.date_to
-                    ? `${format(parseISO(d.date_from), "d MMM", {
-                        locale: ru,
-                      })} — ${format(parseISO(d.date_to), "d MMM", {
-                        locale: ru,
-                      })}`
-                    : null;
-                const flag = d.flag_code
-                  ? String.fromCodePoint(
-                      0x1f1e6 + d.flag_code.toUpperCase().charCodeAt(0) - 65
-                    ) +
-                    String.fromCodePoint(
-                      0x1f1e6 + d.flag_code.toUpperCase().charCodeAt(1) - 65
-                    )
-                  : null;
-                return (
-                  <Link
-                    key={d.id}
-                    href={`/trips/${trip.slug}/destinations/${d.id}`}
-                    className="relative rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[4/5] active:opacity-90"
-                  >
-                    {photoUrl && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={photoUrl}
-                        alt={d.name}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                    <div className="absolute inset-x-0 bottom-0 p-3 text-white">
-                      <div className="flex items-center gap-[6px] text-[11px] opacity-90 mb-[2px]">
-                        {flag && <span className="text-[14px]">{flag}</span>}
-                        {d.country && <span>{d.country}</span>}
-                      </div>
-                      <div className="text-[15px] font-semibold leading-tight">
-                        {d.name}
-                      </div>
-                      {range && (
-                        <div className="text-[11px] opacity-85 mt-[2px] tnum">
-                          {range}
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
         )}
 
         {allDays.length > 0 && (
@@ -275,11 +287,6 @@ export default async function TripOverviewPage({
             </div>
           </section>
         )}
-
-        <div className="bg-white rounded-card shadow-card p-5 text-text-sec text-[13px] leading-relaxed">
-          Разделы Документы, Фото и Бюджет подключаются на следующих
-          этапах.
-        </div>
 
         <div className="flex gap-3">
           <Link
@@ -330,6 +337,25 @@ function formatShortDate(dateISO: string): string {
   const day = format(d, "d", { locale: ru });
   const month = format(d, "MMM", { locale: ru });
   return `${dow} · ${day} ${month}`;
+}
+
+function formatCityRange(
+  from: string | null,
+  to: string | null
+): string | null {
+  if (!from || !to) return null;
+  const a = parseISO(from);
+  const b = parseISO(to);
+  const sameMonth =
+    a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  if (sameMonth) {
+    return `${format(a, "d", { locale: ru })}–${format(b, "d MMMM", {
+      locale: ru,
+    })}`;
+  }
+  return `${format(a, "d MMMM", { locale: ru })} — ${format(b, "d MMMM", {
+    locale: ru,
+  })}`;
 }
 
 function plural(n: number, forms: [string, string, string]) {

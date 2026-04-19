@@ -5,6 +5,8 @@ import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
+import CityTabs, { type CityTab } from "@/components/CityTabs";
+import Flag from "@/components/Flag";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -72,16 +74,6 @@ type StayRow = {
   raw: StayRaw | null;
 };
 
-function flagEmoji(code: string | null | undefined): string | null {
-  if (!code || code.length !== 2) return null;
-  const up = code.toUpperCase();
-  const A = 0x1f1e6;
-  return (
-    String.fromCodePoint(A + up.charCodeAt(0) - 65) +
-    String.fromCodePoint(A + up.charCodeAt(1) - 65)
-  );
-}
-
 function formatRange(from: string | null, to: string | null): string | null {
   if (!from || !to) return null;
   const a = parseISO(from);
@@ -132,28 +124,14 @@ export default async function DestinationPage({
     .eq("trip_id", trip.id)
     .in("type", ["stay", "home"])
     .order("sort_order", { ascending: true });
-  const tabDests = (tabDestsRaw ?? []) as Array<{
-    id: string;
-    name: string;
-    flag_code: string | null;
-    type: string;
-    sort_order: number | null;
-    date_from: string | null;
-  }>;
-  // De-dupe home cities (departure + return) — keep just one "Домой" tab
-  // pointing to the final home destination (return leg).
-  const tabs: typeof tabDests = [];
-  for (const t of tabDests) {
-    if (t.type === "home") {
-      // skip, we'll append a single "Домой" tab at the end
-      continue;
-    }
-    tabs.push(t);
-  }
-  const homeBack = [...tabDests]
-    .reverse()
-    .find((t) => t.type === "home");
-  if (homeBack) tabs.push({ ...homeBack, name: "Домой" });
+  const cityTabs: CityTab[] = (tabDestsRaw ?? []).map((t) => ({
+    id: t.id as string,
+    name: t.name as string,
+    flagCode: (t.flag_code as string | null) ?? null,
+    type: (t.type as string | null) ?? null,
+    sortOrder: (t.sort_order as number | null) ?? null,
+    dateFrom: (t.date_from as string | null) ?? null,
+  }));
 
   const { data: stayData } = await admin
     .from("stays")
@@ -178,7 +156,6 @@ export default async function DestinationPage({
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
 
   const title = dest.name;
-  const flag = flagEmoji(dest.flag_code);
   const rangeLabel = formatRange(dest.date_from, dest.date_to);
 
   const priceLabel = raw.price
@@ -214,29 +191,7 @@ export default async function DestinationPage({
       />
 
       <div className="px-5 pb-28 pt-4 space-y-4">
-        {/* City tabs */}
-        {tabs.length > 1 && (
-          <div className="flex gap-[8px] overflow-x-auto -mx-5 px-5 pb-1 no-scrollbar">
-            {tabs.map((t) => {
-              const active = t.id === dest.id;
-              const tFlag = flagEmoji(t.flag_code);
-              return (
-                <Link
-                  key={t.id}
-                  href={`/trips/${trip.slug}/destinations/${t.id}`}
-                  className={`flex items-center gap-[6px] px-4 py-[8px] rounded-badge text-[13px] font-medium whitespace-nowrap border transition-colors ${
-                    active
-                      ? "bg-accent text-white border-accent"
-                      : "bg-white text-text-main border-black/10 hover:bg-bg-surface"
-                  }`}
-                >
-                  {tFlag && <span className="text-[15px]">{tFlag}</span>}
-                  <span>{t.name}</span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+        <CityTabs slug={trip.slug} tabs={cityTabs} activeId={dest.id} />
 
         <Link
           href={`/trips/${trip.slug}`}
@@ -247,8 +202,8 @@ export default async function DestinationPage({
 
         {/* City headline */}
         <div>
-          <h1 className="text-[22px] font-bold text-text-main flex items-center gap-[8px]">
-            {flag && <span className="text-[24px]">{flag}</span>}
+          <h1 className="text-[22px] font-bold text-text-main flex items-center gap-[10px]">
+            <Flag code={dest.flag_code} size="md" />
             <span>{title}</span>
           </h1>
           {rangeLabel && (
