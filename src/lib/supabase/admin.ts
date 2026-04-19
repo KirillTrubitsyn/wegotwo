@@ -2,13 +2,17 @@
  * Admin Supabase client using the service_role key.
  * Bypasses RLS. Use ONLY on the server for operations that need
  * to run regardless of user session: Cowork ingest, server-side
- * backfills, one-off migrations.
+ * backfills, one-off migrations, and trip CRUD in this app (the
+ * auth gate lives in middleware, not in Supabase auth).
+ *
+ * The client is intentionally typed as `SupabaseClient<any>` so
+ * inserts and updates compile without a generated Database type.
  */
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let cached: ReturnType<typeof createClient> | null = null;
+let cached: SupabaseClient | null = null;
 
-export function createAdminClient() {
+export function createAdminClient(): SupabaseClient {
   if (cached) return cached;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

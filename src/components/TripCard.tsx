@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
+import { swatch, type TripColor } from "@/lib/trip-colors";
 
 type Props = {
   slug: string;
@@ -9,7 +10,9 @@ type Props = {
   dateFrom: string;
   dateTo: string;
   coverUrl?: string | null;
+  color?: TripColor | string | null;
   variant?: "hero" | "tile";
+  muted?: boolean;
 };
 
 export default function TripCard({
@@ -19,8 +22,11 @@ export default function TripCard({
   dateFrom,
   dateTo,
   coverUrl,
+  color,
   variant = "tile",
+  muted,
 }: Props) {
+  const s = swatch(color);
   const from = parseISO(dateFrom);
   const to = parseISO(dateTo);
   const today = new Date();
@@ -36,15 +42,21 @@ export default function TripCard({
       ? `через ${daysUntil} ${plural(daysUntil, ["день", "дня", "дней"])}`
       : daysUntil === 0
       ? "сегодня"
-      : daysUntil >= -1
+      : differenceInCalendarDays(to, today) >= 0
       ? "идёт сейчас"
       : "завершена";
+
+  const bgGradient = coverUrl
+    ? ""
+    : `bg-gradient-to-br ${s.gradientFrom} ${s.gradientTo}`;
 
   if (variant === "hero") {
     return (
       <Link
         href={`/trips/${slug}`}
-        className="block relative rounded-card overflow-hidden shadow-card aspect-[16/11] bg-bg-surface"
+        className={`block relative rounded-card overflow-hidden shadow-card aspect-[16/11] ${bgGradient} ${
+          coverUrl ? "bg-bg-surface" : ""
+        }`}
       >
         {coverUrl && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -57,13 +69,16 @@ export default function TripCard({
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/60" />
         <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-          <div className="text-[11px] uppercase tracking-[0.6px] opacity-80">
+          <div className="text-[11px] uppercase tracking-[0.6px] opacity-85">
             Ближайшая поездка · {countdown}
           </div>
           <div className="font-semibold text-[24px] tracking-tight mt-1">
             {title}
           </div>
-          <div className="text-[13px] opacity-90 mt-0.5">{rangeLabel}</div>
+          <div className="text-[13px] opacity-90 mt-0.5 tnum">{rangeLabel}</div>
+          {country && (
+            <div className="text-[12px] opacity-80 mt-0.5">{country}</div>
+          )}
         </div>
       </Link>
     );
@@ -72,7 +87,9 @@ export default function TripCard({
   return (
     <Link
       href={`/trips/${slug}`}
-      className="block rounded-card overflow-hidden shadow-card bg-bg-surface aspect-square relative"
+      className={`block relative rounded-card overflow-hidden shadow-card aspect-square ${bgGradient} ${
+        coverUrl ? "bg-bg-surface" : ""
+      } ${muted ? "opacity-80" : ""}`}
     >
       {coverUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -86,7 +103,7 @@ export default function TripCard({
       <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/55" />
       <div className="absolute inset-x-0 bottom-0 p-3 text-white">
         <div className="font-semibold text-[15px] leading-tight">{title}</div>
-        <div className="text-[11px] opacity-85 mt-0.5">{rangeLabel}</div>
+        <div className="text-[11px] opacity-85 mt-0.5 tnum">{rangeLabel}</div>
       </div>
     </Link>
   );
