@@ -5,6 +5,7 @@ import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import RouteCard from "@/components/RouteCard";
+import DayCard from "@/components/DayCard";
 import OfflineBanner from "@/components/OfflineBanner";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { archiveTripAction, deleteTripAction } from "../actions";
@@ -59,6 +60,38 @@ export default async function TripOverviewPage({
     locale: ru,
   })} — ${format(parseISO(trip.date_to), "d MMMM yyyy", { locale: ru })}`;
 
+  // Preview up to 3 upcoming/current days with event counts.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: daysData } = await admin
+    .from("days")
+    .select("id,date,title,detail,badge")
+    .eq("trip_id", trip.id)
+    .order("date", { ascending: true });
+  const allDays = (daysData ?? []) as Array<{
+    id: string;
+    date: string;
+    title: string | null;
+    detail: string | null;
+    badge: string | null;
+  }>;
+
+  const { data: evtRows } = await admin
+    .from("events")
+    .select("day_id")
+    .eq("trip_id", trip.id);
+  const evtCounts = new Map<string, number>();
+  for (const r of (evtRows ?? []) as Array<{ day_id: string }>) {
+    evtCounts.set(r.day_id, (evtCounts.get(r.day_id) ?? 0) + 1);
+  }
+
+  const previewStart = Math.max(
+    0,
+    allDays.findIndex((d) => d.date >= today)
+  );
+  const previewDays = allDays
+    .map((d, idx) => ({ ...d, n: idx + 1 }))
+    .slice(previewStart === -1 ? 0 : previewStart, previewStart + 3);
+
   return (
     <>
       <OfflineBanner />
@@ -100,9 +133,56 @@ export default async function TripOverviewPage({
           </div>
         )}
 
+        {allDays.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold">
+                {previewStart === -1 ? "Последние дни" : "Ближайшие дни"}
+              </h2>
+              <Link
+                href={`/trips/${trip.slug}/days`}
+                className="text-[12px] font-medium text-accent"
+              >
+                Все {allDays.length}
+              </Link>
+            </div>
+            <div className="space-y-[10px]">
+              {previewDays.map((d) => {
+                const count = evtCounts.get(d.id) ?? 0;
+                const detail = d.detail
+                  ? d.detail
+                  : count > 0
+                  ? `${count} ${plural(count, [
+                      "событие",
+                      "события",
+                      "событий",
+                    ])}`
+                  : null;
+                const badge = d.badge
+                  ? d.badge
+                  : d.date === today
+                  ? "Сегодня"
+                  : null;
+                const dateLabel = formatShortDate(d.date);
+                return (
+                  <DayCard
+                    key={d.id}
+                    href={`/trips/${trip.slug}/days/${d.n}`}
+                    dateLabel={dateLabel}
+                    title={d.title || `День ${d.n}`}
+                    detail={detail}
+                    badge={badge}
+                    badgeColor={trip.color}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <div className="bg-white rounded-card shadow-card p-5 text-text-sec text-[13px] leading-relaxed">
-          Разделы Дни, Документы, Фото и Бюджет подключаются на следующих
-          этапах. Используйте нижнюю навигацию после наполнения поездки.
+          Разделы Документы, Фото и Бюджет подключаются на следующих
+          этапах.
         </div>
 
         <div className="flex gap-3">
@@ -146,4 +226,21 @@ export default async function TripOverviewPage({
       <BottomNav slug={trip.slug} />
     </>
   );
+}
+
+function formatShortDate(dateISO: string): string {
+  const d = parseISO(dateISO);
+  const dow = format(d, "EEE", { locale: ru }).toUpperCase();
+  const day = format(d, "d", { locale: ru });
+  const month = format(d, "MMM", { locale: ru });
+  return `${dow} · ${day} ${month}`;
+}
+
+function plural(n: number, forms: [string, string, string]) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20))
+    return forms[1];
+  return forms[2];
 }
