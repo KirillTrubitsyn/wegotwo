@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUsername } from "@/lib/auth/current-user";
 import { TRIP_COLORS } from "@/lib/trip-colors";
+import { syncDaysForTrip } from "@/lib/days/sync";
 
 const CURRENCIES = ["RUB", "EUR", "USD", "CHF", "GBP"] as const;
 
@@ -81,19 +82,23 @@ export async function createTripAction(
   }
 
   const admin = createAdminClient();
-  const { error } = await admin.from("trips").insert({
-    title: parsed.data.title,
-    slug: parsed.data.slug,
-    subtitle: parsed.data.subtitle || null,
-    country: parsed.data.country || null,
-    date_from: parsed.data.date_from,
-    date_to: parsed.data.date_to,
-    base_currency: parsed.data.base_currency,
-    primary_tz: parsed.data.primary_tz,
-    color: parsed.data.color,
-    route_summary: parsed.data.route_summary || null,
-    created_by_username: username,
-  });
+  const { data: inserted, error } = await admin
+    .from("trips")
+    .insert({
+      title: parsed.data.title,
+      slug: parsed.data.slug,
+      subtitle: parsed.data.subtitle || null,
+      country: parsed.data.country || null,
+      date_from: parsed.data.date_from,
+      date_to: parsed.data.date_to,
+      base_currency: parsed.data.base_currency,
+      primary_tz: parsed.data.primary_tz,
+      color: parsed.data.color,
+      route_summary: parsed.data.route_summary || null,
+      created_by_username: username,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     if (error.code === "23505") {
@@ -103,6 +108,19 @@ export async function createTripAction(
       };
     }
     return { ok: false, form: error.message };
+  }
+
+  if (inserted?.id) {
+    try {
+      await syncDaysForTrip(
+        admin,
+        inserted.id as string,
+        parsed.data.date_from,
+        parsed.data.date_to
+      );
+    } catch (e) {
+      console.error("[createTripAction] syncDaysForTrip failed:", e);
+    }
   }
 
   revalidatePath("/");
@@ -125,7 +143,7 @@ export async function updateTripAction(
   }
 
   const admin = createAdminClient();
-  const { error } = await admin
+  const { data: updated, error } = await admin
     .from("trips")
     .update({
       title: parsed.data.title,
@@ -139,7 +157,9 @@ export async function updateTripAction(
       color: parsed.data.color,
       route_summary: parsed.data.route_summary || null,
     })
-    .eq("slug", currentSlug);
+    .eq("slug", currentSlug)
+    .select("id")
+    .single();
 
   if (error) {
     if (error.code === "23505") {
@@ -149,6 +169,19 @@ export async function updateTripAction(
       };
     }
     return { ok: false, form: error.message };
+  }
+
+  if (updated?.id) {
+    try {
+      await syncDaysForTrip(
+        admin,
+        updated.id as string,
+        parsed.data.date_from,
+        parsed.data.date_to
+      );
+    } catch (e) {
+      console.error("[updateTripAction] syncDaysForTrip failed:", e);
+    }
   }
 
   revalidatePath("/");
