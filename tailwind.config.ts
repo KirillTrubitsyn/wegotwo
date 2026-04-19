@@ -25,8 +25,21 @@ const config: Config = {
         "purple-lt": "#F3EEFF",
       },
       fontFamily: {
-        sans: ["Inter", "-apple-system", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        sans: [
+          "var(--font-sans)",
+          "Inter",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Segoe UI",
+          "sans-serif",
+        ],
+        mono: [
+          "var(--font-mono)",
+          "JetBrains Mono",
+          "ui-monospace",
+          "SFMono-Regular",
+          "monospace",
+        ],
       },
       borderRadius: {
         card: "16px",
@@ -37,10 +50,19 @@ const config: Config = {
         card: "0 1px 3px rgba(0,0,0,0.06)",
         photo: "0 2px 12px rgba(0,0,0,0.08)",
         avatar: "0 2px 8px rgba(0,0,0,0.12)",
-        "float": "0 10px 40px rgba(0,0,0,0.12)",
+        float: "0 10px 40px rgba(0,0,0,0.12)",
       },
       maxWidth: {
         app: "480px",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+      },
+      animation: {
+        fadeIn: "fadeIn 200ms ease-out",
       },
     },
   },
