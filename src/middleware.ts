@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/api/admin/ingest", // protected by its own Bearer token
   "/api/admin/seed", // seed endpoints also use WGT_INGEST_TOKEN
   "/api/admin/debug", // debug endpoints also use WGT_INGEST_TOKEN
+  "/api/admin/trips", // trip CRUD also uses WGT_INGEST_TOKEN
 ];
 
 function isPublic(pathname: string) {
