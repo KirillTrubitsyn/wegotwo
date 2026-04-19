@@ -10,6 +10,7 @@ import {
   type DocActionState,
 } from "../actions";
 import PdfPreview from "../PdfPreview";
+import IngestPanel from "./IngestPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signedDocUrl } from "@/lib/docs/storage";
 import {
@@ -22,6 +23,14 @@ export const dynamic = "force-dynamic";
 
 type Trip = { id: string; slug: string; title: string };
 
+type IngestStatus =
+  | "pending"
+  | "needs_review"
+  | "parsed"
+  | "failed"
+  | "skipped"
+  | null;
+
 type DocRow = {
   id: string;
   kind: string;
@@ -31,6 +40,8 @@ type DocRow = {
   mime: string | null;
   created_at: string;
   uploaded_by_username: string | null;
+  parsed_status: IngestStatus;
+  parsed_fields: unknown;
 };
 
 function toNum(v: number | string | null | undefined): number {
@@ -57,13 +68,52 @@ export default async function DocDetailPage({
   const { data: docData } = await admin
     .from("documents")
     .select(
-      "id,kind,title,storage_path,size_bytes,mime,created_at,uploaded_by_username"
+      "id,kind,title,storage_path,size_bytes,mime,created_at,uploaded_by_username,parsed_status,parsed_fields"
     )
     .eq("id", docId)
     .eq("trip_id", trip.id)
     .maybeSingle();
   if (!docData) notFound();
   const doc = docData as DocRow;
+
+  // Resolve a link to the row created from this document, if any.
+  let linkedRowUrl: string | null = null;
+  if (doc.parsed_status === "parsed") {
+    const { data: fl } = await admin
+      .from("flights")
+      .select("id")
+      .eq("trip_id", trip.id)
+      .eq("document_id", doc.id)
+      .maybeSingle();
+    if ((fl as { id: string } | null)?.id) {
+      linkedRowUrl = `/trips/${slug}`; // flights live on overview for now
+    }
+    if (!linkedRowUrl) {
+      const { data: st } = await admin
+        .from("stays")
+        .select("id,destination_id")
+        .eq("trip_id", trip.id)
+        .eq("document_id", doc.id)
+        .maybeSingle();
+      const stay = st as
+        | { id: string; destination_id: string | null }
+        | null;
+      if (stay?.destination_id) {
+        linkedRowUrl = `/trips/${slug}/destinations/${stay.destination_id}`;
+      }
+    }
+    if (!linkedRowUrl) {
+      const { data: ex } = await admin
+        .from("expenses")
+        .select("id")
+        .eq("trip_id", trip.id)
+        .eq("document_id", doc.id)
+        .maybeSingle();
+      if ((ex as { id: string } | null)?.id) {
+        linkedRowUrl = `/trips/${slug}/budget/${(ex as { id: string }).id}`;
+      }
+    }
+  }
 
   const url = await signedDocUrl(admin, doc.storage_path);
   const isPdf = doc.mime === "application/pdf";
@@ -152,6 +202,15 @@ export default async function DocDetailPage({
             Открыть в новом окне
           </a>
         )}
+
+        {/* AI ingest */}
+        <IngestPanel
+          slug={slug}
+          docId={doc.id}
+          status={doc.parsed_status}
+          parsedFields={doc.parsed_fields}
+          linkedRowUrl={linkedRowUrl}
+        />
 
         {/* Edit meta */}
         <section className="bg-white rounded-card shadow-card p-5 space-y-4">
