@@ -39,7 +39,19 @@ type ExpenseRow = {
   currency_base: string;
 };
 
-const DISPLAY_CURRENCIES: DisplayCurrency[] = ["RUB", "EUR", "USD", "CHF"];
+/**
+ * Baseline trio shown in every trip. The fourth slot is the trip's
+ * base_currency (country-of-stay currency, as declared on the trip).
+ * Дедупим, если база уже в тройке — тогда показываем только три.
+ */
+const BASE_DISPLAY: DisplayCurrency[] = ["RUB", "EUR", "USD"];
+
+function buildDisplayCurrencies(baseCurrency: string): DisplayCurrency[] {
+  const norm = baseCurrency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(norm)) return [...BASE_DISPLAY];
+  if (BASE_DISPLAY.includes(norm)) return [...BASE_DISPLAY];
+  return [...BASE_DISPLAY, norm];
+}
 
 function toNum(v: number | string | null | undefined): number {
   if (v == null) return 0;
@@ -74,16 +86,16 @@ export default async function BudgetPage({
 
   const expenses = (expData ?? []) as ExpenseRow[];
 
+  const DISPLAY_CURRENCIES = buildDisplayCurrencies(trip.base_currency);
+
   // Precompute per-display-currency amounts for every expense, reusing
   // the CBR cache. We start from `amount_original` / `currency_original`
   // on `occurred_on` so we pick up fresh rates rather than cascading
   // through the trip's base currency.
-  const views: Record<DisplayCurrency, CurrencyView> = {
-    RUB: { total: 0, byCategory: {}, amounts: {} },
-    EUR: { total: 0, byCategory: {}, amounts: {} },
-    USD: { total: 0, byCategory: {}, amounts: {} },
-    CHF: { total: 0, byCategory: {}, amounts: {} },
-  };
+  const views: Record<DisplayCurrency, CurrencyView> = {};
+  for (const c of DISPLAY_CURRENCIES) {
+    views[c] = { total: 0, byCategory: {}, amounts: {} };
+  }
   let missingRates = false;
 
   for (const e of expenses) {
@@ -137,11 +149,14 @@ export default async function BudgetPage({
     currency_original: e.currency_original,
   }));
 
+  // Пользователь обычно смотрит расходы в валюте страны пребывания —
+  // это дефолт. Если base_currency почему-то невалидна, падаем на RUB.
+  const normalizedBase = trip.base_currency.trim().toUpperCase();
   const defaultCurrency: DisplayCurrency = DISPLAY_CURRENCIES.includes(
-    trip.base_currency as DisplayCurrency
+    normalizedBase
   )
-    ? (trip.base_currency as DisplayCurrency)
-    : "RUB";
+    ? normalizedBase
+    : DISPLAY_CURRENCIES[0];
 
   return (
     <>

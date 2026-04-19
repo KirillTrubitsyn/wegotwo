@@ -12,7 +12,13 @@ import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/budget/labels";
 
-export type DisplayCurrency = "RUB" | "EUR" | "USD" | "CHF";
+/**
+ * ISO-4217 code. The fourth slot is the trip's base currency (EUR for
+ * Montenegro, CHF for Switzerland, RSD for Serbia, JPY for Japan…).
+ * Baseline trio is always RUB/EUR/USD; base_currency is appended and
+ * deduped on the server.
+ */
+export type DisplayCurrency = string;
 
 export type CurrencyView = {
   total: number;

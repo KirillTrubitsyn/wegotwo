@@ -10,7 +10,27 @@ import {
   SPLIT_LABELS,
 } from "@/lib/budget/labels";
 
-const CURRENCIES = ["RUB", "EUR", "USD", "CHF", "GBP", "RSD", "TRY", "GEL"];
+const FALLBACK_CURRENCIES = [
+  "RUB",
+  "EUR",
+  "USD",
+  "CHF",
+  "GBP",
+  "RSD",
+  "TRY",
+  "GEL",
+];
+
+// Ставим валюту страны поездки первой в списке — обычно чеки и
+// документы приходят именно в ней. Дополнительно подмешиваем
+// стандартный набор, чтобы можно было ввести сумму в RUB/USD/…
+function buildCurrencyList(base: string): string[] {
+  const norm = base.trim().toUpperCase();
+  const list = /^[A-Z]{3}$/.test(norm)
+    ? [norm, ...FALLBACK_CURRENCIES]
+    : [...FALLBACK_CURRENCIES];
+  return Array.from(new Set(list));
+}
 const CATEGORIES = [
   "flight",
   "transport",
@@ -65,6 +85,8 @@ export default function ExpenseForm({
   const fields = !state.ok ? state.fields ?? {} : {};
   const formErr = !state.ok ? state.form : undefined;
 
+  const currencyOptions = buildCurrencyList(defaultCurrency);
+
   return (
     <form action={formAction} className="space-y-4">
       {formErr && (
@@ -115,7 +137,7 @@ export default function ExpenseForm({
             defaultValue={initial?.currency_original ?? defaultCurrency}
             className="bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"
           >
-            {CURRENCIES.map((c) => (
+            {currencyOptions.map((c) => (
               <option key={c} value={c}>
                 {c} {CURRENCY_SYMBOLS[c] ?? ""}
               </option>

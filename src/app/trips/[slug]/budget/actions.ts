@@ -7,17 +7,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUsername } from "@/lib/auth/current-user";
 import { convert } from "@/lib/rates/cbr";
 
-const CURRENCIES = [
-  "RUB",
-  "EUR",
-  "USD",
-  "CHF",
-  "GBP",
-  "RSD",
-  "TRY",
-  "GEL",
-] as const;
-
 const CATEGORIES = [
   "flight",
   "transport",
@@ -47,7 +36,13 @@ const schema = z.object({
     .string()
     .trim()
     .regex(/^-?\d+(?:[.,]\d{1,2})?$/, "Сумма, например 12.50"),
-  currency_original: z.enum(CURRENCIES),
+  // ISO-4217 трёхбуквенный код. Принимаем любой, чтобы поддержать
+  // валюту страны пребывания (EUR, CHF, GBP, RSD, JPY, GEL, TRY, …).
+  currency_original: z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .pipe(z.string().regex(/^[A-Z]{3}$/, "Валюта в формате USD/EUR/…")),
   paid_by_username: z.enum(PAYERS),
   split: z.enum(SPLITS),
 });
