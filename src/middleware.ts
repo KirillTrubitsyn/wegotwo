@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/manifest.json",
   "/icons",
   "/api/admin/ingest", // protected by its own Bearer token
+  "/api/admin/seed", // seed endpoints also use WGT_INGEST_TOKEN
 ];
 
 function isPublic(pathname: string) {

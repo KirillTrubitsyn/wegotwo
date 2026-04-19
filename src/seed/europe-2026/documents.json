@@ -1,0 +1,103 @@
+[
+  {
+    "id": "passport-kirill",
+    "group": "Паспорта",
+    "icon": "🛂",
+    "iconType": "passport",
+    "name": "Кирилл Трубицын",
+    "description": "Загранпаспорт",
+    "pdfPath": "/docs/passports/Trubitsyn Kirill 775381933.pdf"
+  },
+  {
+    "id": "passport-marina",
+    "group": "Паспорта",
+    "icon": "🛂",
+    "iconType": "passport",
+    "name": "Марина Брезеке",
+    "description": "Загранпаспорт",
+    "pdfPath": "/docs/passports/Braesecke Marina 777687306.pdf"
+  },
+  {
+    "id": "flight-air-algerie",
+    "group": "Перелёты",
+    "icon": "✈️",
+    "iconType": "flight",
+    "name": "Air Algérie SVO → CDG",
+    "description": "Бронь 9BRMSB, 23 фев",
+    "pdfFiles": [
+      { "label": "Кирилл (EN)", "path": "/docs/flights/Air Algerie confirmation KIRILL TRUBITSYN 9BRMSB.pdf" },
+      { "label": "Кирилл (RU)", "path": "/docs/flights/Air Algerie confirmation KIRILL TRUBITSYN 9BRMSB ру.pdf" },
+      { "label": "Марина (EN)", "path": "/docs/flights/Air Algerie confirmation MARINA BRAESECKE 9BRMSB.pdf" },
+      { "label": "Марина (RU)", "path": "/docs/flights/Air Algerie confirmation MARINA BRAESECKE 9BRMSB ру.pdf" },
+      { "label": "Общее подтверждение", "path": "/docs/flights/Air Algire confirmation.pdf" }
+    ]
+  },
+  {
+    "id": "flight-easyjet",
+    "group": "Перелёты",
+    "icon": "✈️",
+    "iconType": "flight",
+    "name": "EasyJet CDG → BER",
+    "description": "Бронь KC1L1TD, 26 фев",
+    "pdfPath": "/docs/flights/Aviasales_ticket Париж-Берлин.pdf"
+  },
+  {
+    "id": "flight-swiss",
+    "group": "Перелёты",
+    "icon": "✈️",
+    "iconType": "flight",
+    "name": "SWISS/Eurowings BER → ZRH",
+    "description": "Бронь Z5UDNH, 1 мар",
+    "pdfFiles": [
+      { "label": "Бронирование", "path": "/docs/flights/SWISS booking.pdf" },
+      { "label": "E-ticket Кирилл", "path": "/docs/flights/SWISS e-ticket_7242346852880_KIRILL_TRUBITSYN.pdf" },
+      { "label": "E-ticket Марина", "path": "/docs/flights/SWISS e-ticket_7242346852881_MARINA_BRAESECKE.pdf" }
+    ]
+  },
+  {
+    "id": "flight-air-serbia",
+    "group": "Перелёты",
+    "icon": "✈️",
+    "iconType": "flight",
+    "name": "Air Serbia ZRH → BEG → SVO",
+    "description": "Бронь UAEGBO, 7 мар",
+    "pdfFiles": [
+      { "label": "Кирилл", "path": "/docs/flights/Квитанция электронного билета, 07 марта, MR KIRILL TRUBITSYN.pdf" },
+      { "label": "Марина", "path": "/docs/flights/Квитанция электронного билета, 07 марта, MS MARINA BRAESECKE.pdf" }
+    ]
+  },
+  {
+    "id": "stay-airbnb-paris",
+    "group": "Проживание",
+    "icon": "🏠",
+    "iconType": "hotel",
+    "name": "Airbnb Париж",
+    "description": "HMPCJS8CQN, 23–26 фев",
+    "url": "https://www.airbnb.ru/trips/v1/reservation-details/ro/RESERVATION2_CHECKIN/HMPCJS8CQN",
+    "pdfPath": "/docs/hotels/Reservation Paris- HMPCJS8CQN.pdf"
+  },
+  {
+    "id": "stay-mercure-berlin",
+    "group": "Проживание",
+    "icon": "🏨",
+    "iconType": "hotel",
+    "name": "Mercure Берлин",
+    "description": "6932.785.830, 26 фев – 1 мар",
+    "url": "https://secure.booking.com/confirmation.ru.html?bn=6932785830&pincode=7749",
+    "pdfPath": "/docs/hotels/Booking.com_Mercure Hotel.pdf",
+    "pin": "7749"
+  },
+  {
+    "id": "extras-air-serbia",
+    "group": "Доп. сборы и EMD",
+    "icon": "📄",
+    "iconType": "other",
+    "name": "Air Serbia: места, багаж",
+    "description": "Кирилл: €40,50 + €90,00 / Марина: €40,50",
+    "pdfFiles": [
+      { "label": "Кирилл — места", "path": "/docs/fees/Другие сборы, 07 марта для MR KIRILL TRUBITSYN.pdf" },
+      { "label": "Кирилл — багаж", "path": "/docs/fees/Другие сборы, 07 марта для MR KIRILL TRUBITSYN (багаж).pdf" },
+      { "label": "Марина", "path": "/docs/fees/Другие сборы, 07 марта для MS MARINA BRAESECKE.pdf" }
+    ]
+  }
+]

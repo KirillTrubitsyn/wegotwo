@@ -1,0 +1,73 @@
+[
+  {
+    "id": "paris-airbnb",
+    "city": "paris",
+    "name": "Лувр / Тюильри: тихий оазис с лифтом",
+    "address": "3 Rue d'Alger, Париж, 75001\n25 м от метро Tuileries (линия 1)",
+    "mapEmbedUrl": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2624.5!2d2.32991!3d48.8654671!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDjCsDUxJzU1LjciTiAywrAxOSc0Ny43IkU!5e0!3m2!1sru!2sfr!4v1",
+    "mapUrl": "https://www.google.com/maps/place/48%C2%B051'55.7%22N+2%C2%B019'47.7%22E",
+    "checkIn": "23 фев, 16:00",
+    "checkOut": "26 фев, 11:00",
+    "confirmationLabel": "Код подтверждения Airbnb",
+    "confirmationCode": "HMPCJS8CQN",
+    "host": "Sam",
+    "price": "$930,08",
+    "phone": "+33618332914",
+    "bookingUrl": "https://www.airbnb.ru/trips/v1/reservation-details/ro/RESERVATION2_CHECKIN/HMPCJS8CQN",
+    "bookingLabel": "Airbnb",
+    "checkinInstructions": [
+      "Код подъезда: 03A01 (клавиатура справа от двери)",
+      "Пройти прямо по коридору до стеклянной двери во двор. Слева набрать #2731",
+      "Лифт на 3-й этаж. Выйти из лифта, повернуть налево",
+      "Слева от двери квартиры — чёрный бокс, код 2731 → забрать ключи",
+      "Ключ вставить полностью в замок, повернуть по часовой стрелке. Если не идёт — перевернуть на 180°"
+    ],
+    "wifi": { "network": "Paris-Louvre", "password": "Rivoli2014" },
+    "extraDetails": [
+      { "label": "Заезд", "value": "23 фев, 16:00" },
+      { "label": "Выезд", "value": "26 фев, 11:00" },
+      { "label": "Хозяин", "value": "Sam" },
+      { "label": "Оплачено", "value": "$930,08" }
+    ]
+  },
+  {
+    "id": "berlin-mercure",
+    "city": "berlin",
+    "name": "MERCURE Hotel Berlin Wittenbergplatz",
+    "address": "Wittenbergplatz 3, Темпельхоф-Шёнеберг, 10789 Berlin\nРядом с KaDeWe и зоопарком",
+    "mapEmbedUrl": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2428.8!2d13.342499!3d52.5008495!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47a85056acfd853d%3A0xdee6b674c8a10da1!2sWittenbergpl.+3%2C+10789+Berlin!5e0!3m2!1sru!2sde!4v1",
+    "mapUrl": "https://www.google.com/maps/place/Wittenbergpl.+3,+10789+Berlin",
+    "checkIn": "26 фев, 15:00",
+    "checkOut": "1 мар, 12:00",
+    "confirmationLabel": "Номер подтверждения Booking.com",
+    "confirmationCode": "6932.785.830",
+    "pin": "7749",
+    "price": "€441,64",
+    "details": "Улучшенный номер, queen-size + диван. Завтрак включён. Wi-Fi бесплатно.",
+    "phone": "+493025935527",
+    "bookingUrl": "https://secure.booking.com/confirmation.ru.html?bn=6932785830",
+    "bookingLabel": "Booking.com",
+    "extraDetails": [
+      { "label": "Заезд", "value": "26 фев, 15:00" },
+      { "label": "Выезд", "value": "1 мар, 12:00" },
+      { "label": "PIN", "value": "7749" },
+      { "label": "Оплачено", "value": "€441,64" }
+    ]
+  },
+  {
+    "id": "walzenhausen",
+    "city": "switzerland",
+    "name": "Вальценхаузен",
+    "address": "Weid 1421, 9428 Walzenhausen\nУ друзей Ольги и Клауса",
+    "mapEmbedUrl": "https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d1436!2d9.6022084!3d47.4483782!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x479b112845a142af%3A0xf944858821483308!2sWeid+1421%2C+9428+Walzenhausen!5e0!3m2!1sru!2sch!4v1",
+    "mapUrl": "https://www.google.ch/maps/place/Weid+1421,+9428+Walzenhausen,+%D0%A8%D0%B2%D0%B5%D0%B9%D1%86%D0%B0%D1%80%D0%B8%D1%8F/@47.4483782,9.6000386,718m/data=!3m2!1e3!4b1!4m6!3m5!1s0x479b112845a142af:0xf944858821483308!8m2!3d47.4483782!4d9.6022084!16s%2Fg%2F11c221dd3_?entry=ttu&g_ep=EgoyMDI2MDIwOS4wIKXMDSoASAFQAw%3D%3D",
+    "checkIn": "1 мар",
+    "checkOut": "7 мар, утро",
+    "extraDetails": [
+      { "label": "Прибытие", "value": "1 мар" },
+      { "label": "Отъезд", "value": "7 мар, ~06:00" },
+      { "label": "Ночей", "value": "6" },
+      { "label": "Расстояние до ZRH", "value": "~1ч 20м" }
+    ]
+  }
+]

@@ -1,0 +1,241 @@
+{
+  "route": {
+    "text": "Москва → Париж →\nБерлин → Цюрих → Москва",
+    "summary": "13 дней · 4 страны · 6 перелётов"
+  },
+  "stats": [
+    { "value": 3, "label": "ночи Париж", "color": "blue" },
+    { "value": 3, "label": "ночи Берлин", "color": "gold" },
+    { "value": 6, "label": "ночи Швейцария", "color": "red" }
+  ],
+  "cityPhotos": [
+    {
+      "id": "paris",
+      "name": "Париж",
+      "dates": "23–26 февраля",
+      "imageUrl": "/photos/paris.jpg",
+      "section": "paris"
+    },
+    {
+      "id": "berlin",
+      "name": "Берлин",
+      "dates": "26 февраля — 1 марта",
+      "imageUrl": "/photos/berlin.jpg",
+      "section": "berlin"
+    },
+    {
+      "id": "switzerland",
+      "name": "Вальценхаузен",
+      "dates": "1–7 марта",
+      "imageUrl": "/photos/switzerland.jpg",
+      "section": "switzerland"
+    }
+  ],
+  "dayCards": [
+    {
+      "id": "day-1",
+      "dateLabel": "23 ФЕВ, ПОНЕДЕЛЬНИК",
+      "title": "Москва → Париж",
+      "badge": "Перелёт",
+      "badgeType": "fr",
+      "detail": "AH3001 SVO 04:10 → ALG 07:35 → CDG 13:00",
+      "section": "paris"
+    },
+    {
+      "id": "day-2-3",
+      "dateLabel": "24–25 ФЕВ",
+      "title": "Париж",
+      "badge": "Лувр / Тюильри",
+      "badgeType": "fr",
+      "detail": "Airbnb, 3 Rue d'Alger, 75001",
+      "section": "paris"
+    },
+    {
+      "id": "day-4",
+      "dateLabel": "26 ФЕВ, ЧЕТВЕРГ",
+      "title": "Париж → Берлин",
+      "badge": "Перелёт",
+      "badgeType": "de",
+      "detail": "U2-4633 CDG 12:40 → BER 14:25",
+      "section": "berlin"
+    },
+    {
+      "id": "day-5-6",
+      "dateLabel": "27–28 ФЕВ",
+      "title": "Берлин",
+      "badge": "Mercure",
+      "badgeType": "de",
+      "detail": "Mercure Hotel Berlin Wittenbergplatz",
+      "section": "berlin"
+    },
+    {
+      "id": "day-7",
+      "dateLabel": "1 МАР, ВОСКРЕСЕНЬЕ",
+      "title": "Берлин → Цюрих",
+      "badge": "Перелёт",
+      "badgeType": "ch",
+      "detail": "EW8764 BER 12:05 → ZRH 13:35",
+      "section": "switzerland"
+    },
+    {
+      "id": "day-8-12",
+      "dateLabel": "1–6 МАР",
+      "title": "Вальценхаузен",
+      "badge": "У друзей",
+      "badgeType": "ch",
+      "detail": "Ольга и Клаус, кантон Аппенцелль",
+      "section": "switzerland"
+    },
+    {
+      "id": "day-13",
+      "dateLabel": "7 МАР, СУББОТА",
+      "title": "Цюрих → Москва",
+      "badge": "Домой",
+      "badgeType": "rs",
+      "detail": "JU331 ZRH 09:35 → BEG 11:20 → SVO 19:25",
+      "section": "home-flight"
+    }
+  ],
+  "timelines": {
+    "paris": [
+      {
+        "id": "paris-day1",
+        "dateLabel": "23 ФЕВРАЛЯ, ПОНЕДЕЛЬНИК",
+        "title": "Прилёт в Париж",
+        "events": [
+          { "id": "p1", "time": "02:40", "title": "Крайний срок регистрации SVO", "detail": "Терминал C, Air Algérie", "type": "flight", "actions": [{ "label": "Табло SVO", "url": "https://www.svo.aero/ru/flights", "icon": "📋" }] },
+          { "id": "p2", "time": "04:10 → 07:35", "title": "AH3001: Москва → Алжир", "detail": "Boeing 737-800, 5ч 25мин. Багаж: 2 × 23 кг", "type": "flight", "actions": [{ "label": "Air Algérie", "url": "https://www.airalgerie.dz", "icon": "✈", "primary": true }, { "label": "Позвонить", "url": "tel:+21321986363", "icon": "📞" }] },
+          { "id": "p2a", "time": "07:35–10:30", "title": "Стыковка в Алжире", "detail": "2ч 55мин, аэропорт ALG", "type": "sight", "actions": [{ "label": "Табло ALG", "url": "https://www.aeroportalger.dz", "icon": "📋" }] },
+          { "id": "p3", "time": "10:30 → 13:00", "title": "AH1000: Алжир → Париж CDG", "detail": "Терминал 2D, 2ч 30мин", "type": "flight", "actions": [{ "label": "Air Algérie", "url": "https://www.airalgerie.dz", "icon": "✈", "primary": true }, { "label": "Табло CDG", "url": "https://www.parisaeroport.fr/passagers/vols", "icon": "📋" }] },
+          { "id": "p4", "time": "~14:00", "title": "Трансфер CDG → Tuileries", "detail": "RER B до Châtelet, далее метро линия 1", "type": "train" },
+          { "id": "p5", "time": "16:00", "title": "Заселение в Airbnb", "detail": "Мини-сейф, инструкции за 48ч до прибытия", "type": "hotel" }
+        ]
+      },
+      {
+        "id": "paris-day2",
+        "dateLabel": "24 ФЕВРАЛЯ, ВТОРНИК",
+        "title": "День в Париже",
+        "description": "Прогулки и рестораны",
+        "events": []
+      },
+      {
+        "id": "paris-day3",
+        "dateLabel": "25 ФЕВРАЛЯ, СРЕДА",
+        "title": "Музеи и рестораны",
+        "description": "Музей Орсе и рестораны",
+        "events": []
+      },
+      {
+        "id": "paris-day4",
+        "dateLabel": "26 ФЕВРАЛЯ, ЧЕТВЕРГ",
+        "title": "Париж → Берлин",
+        "events": [
+          { "id": "p6", "time": "~08:00", "title": "Выезд из квартиры", "detail": "Ранний выезд, до 11:00 расчётного", "type": "alert" },
+          { "id": "p7", "time": "09:40", "title": "Прибытие в CDG", "detail": "Рекомендация Авиасейлс", "type": "train", "actions": [{ "label": "Табло CDG", "url": "https://www.parisaeroport.fr/passagers/vols", "icon": "📋" }] },
+          {
+            "id": "p8",
+            "time": "12:40 → 14:25",
+            "title": "U2-4633: Париж → Берлин",
+            "detail": "EasyJet, 1ч 45мин. Багаж: 1 × 23 кг",
+            "type": "flight",
+            "actions": [{ "label": "EasyJet", "url": "https://www.easyjet.com", "icon": "✈", "primary": true }, { "label": "Авиасейлс", "url": "https://www.aviasales.ru", "icon": "🔗" }]
+          }
+        ]
+      }
+    ],
+    "paris-alerts": [
+      { "text": "Выезд из Airbnb в 11:00, но быть в CDG нужно к 09:40. Необходим ранний выезд из квартиры около 08:00 или договорённость с хозяином." }
+    ],
+    "berlin": [
+      {
+        "id": "berlin-day1",
+        "dateLabel": "26 ФЕВРАЛЯ, ЧЕТВЕРГ",
+        "title": "Прибытие в Берлин",
+        "events": [
+          { "id": "b1", "time": "14:25", "title": "Прибытие в BER", "detail": "EasyJet U2-4633 из Парижа", "type": "flight", "actions": [{ "label": "Табло BER", "url": "https://ber.berlin-airport.de/en/flights.html", "icon": "📋" }] },
+          { "id": "b2", "time": "~15:00", "title": "Заселение в Mercure", "detail": "Wittenbergplatz, от аэропорта ~45 мин", "type": "hotel" }
+        ]
+      },
+      {
+        "id": "berlin-day2",
+        "dateLabel": "27 ФЕВРАЛЯ, ПЯТНИЦА",
+        "title": "Bürgeramt, стоматолог и ресторан",
+        "description": "Перенос ВНЖ, чистка зубов у Марины и ужин в Grill Royal",
+        "events": []
+      },
+      {
+        "id": "berlin-day3",
+        "dateLabel": "28 ФЕВРАЛЯ, СУББОТА",
+        "title": "Свободный день в Берлине",
+        "events": []
+      },
+      {
+        "id": "berlin-day4",
+        "dateLabel": "1 МАРТА, ВОСКРЕСЕНЬЕ",
+        "title": "Берлин → Цюрих",
+        "events": [
+          { "id": "b3", "time": "~09:00", "title": "Выезд из отеля", "detail": "Дорога до BER ~45 мин", "type": "alert" },
+          {
+            "id": "b4",
+            "time": "12:05 → 13:35",
+            "title": "EW8764: Берлин → Цюрих",
+            "detail": "Eurowings (SWISS), терм. 1. Багаж: 1 × 23 кг",
+            "type": "flight",
+            "actions": [{ "label": "SWISS", "url": "https://shop.swiss.com/booking/manage-booking", "icon": "✈", "primary": true }, { "label": "Табло BER", "url": "https://ber.berlin-airport.de/en/flights.html", "icon": "📋" }]
+          }
+        ]
+      }
+    ],
+    "berlin-alerts": [
+      { "text": "Выезд из отеля до 12:00, вылет в 12:05. Нужно выехать не позже 09:00–09:15, чтобы быть в BER к 10:00–10:30." }
+    ],
+    "switzerland": [
+      {
+        "id": "ch-day1",
+        "dateLabel": "1 МАРТА, ВОСКРЕСЕНЬЕ",
+        "title": "Прибытие в Швейцарию",
+        "events": [
+          { "id": "c1", "time": "13:35", "title": "Прибытие в ZRH", "detail": "Eurowings EW8764 из Берлина", "type": "flight", "actions": [{ "label": "Табло ZRH", "url": "https://www.zurich-airport.com/en/passengers/flights", "icon": "📋" }] },
+          { "id": "c2", "time": "~14:30–16:00", "title": "ZRH → Вальценхаузен", "detail": "~1ч 20мин на машине или ~2ч поездом через Санкт-Галлен", "type": "train" }
+        ]
+      },
+      {
+        "id": "ch-day2-4",
+        "dateLabel": "2–4 МАРТА",
+        "title": "Вальценхаузен",
+        "events": []
+      },
+      {
+        "id": "ch-day5",
+        "dateLabel": "5 МАРТА, ЧЕТВЕРГ",
+        "title": "Ужин в Gasthaus zum Gupf",
+        "description": "Мишленовский ресторан в Рехетобеле с Олей и Клаусом, ужин на 4 персоны",
+        "events": []
+      },
+      {
+        "id": "ch-day6",
+        "dateLabel": "6 МАРТА, ПЯТНИЦА",
+        "title": "Ужин в Mangold",
+        "description": "Мишленовский ресторан в Лохау с Олей и Клаусом, ужин на 4 персоны",
+        "events": []
+      }
+    ],
+    "home": [
+      {
+        "id": "home-day1",
+        "dateLabel": "7 МАРТА, СУББОТА",
+        "title": "Цюрих → Белград → Москва",
+        "events": [
+          { "id": "h1", "time": "06:35", "title": "Закрытие онлайн-регистрации", "detail": "Air Serbia из Цюриха: за 3 часа", "type": "alert" },
+          { "id": "h2", "time": "~06:00", "title": "Выезд из Вальценхаузена", "detail": "Оля довезёт на машине до ZRH, ~1ч 20мин", "type": "train" },
+          { "id": "h3", "time": "09:35 → 11:20", "title": "JU 331: Цюрих → Белград", "detail": "Air Serbia, 1ч 45мин. Места: Кирилл 03C, Марина 03D", "type": "flight", "actions": [{ "label": "Air Serbia", "url": "https://www.airserbia.com/manage-booking", "icon": "✈", "primary": true }, { "label": "Позвонить", "url": "tel:+381113112123", "icon": "📞" }, { "label": "Табло ZRH", "url": "https://www.zurich-airport.com/en/passengers/flights", "icon": "📋" }] },
+          { "id": "h4", "time": "11:20–14:15", "title": "Стыковка в Белграде", "detail": "2ч 55мин, терминал 2", "type": "sight", "actions": [{ "label": "Табло BEG", "url": "https://www.beg.aero/en/flights/departures_and_arrivals", "icon": "📋" }] },
+          { "id": "h5", "time": "14:15 → 19:25", "title": "JU 132: Белград → Москва", "detail": "Шереметьево, терм. C. Места: Кирилл 13A, Марина 13B", "type": "flight", "actions": [{ "label": "Air Serbia", "url": "https://www.airserbia.com/manage-booking", "icon": "✈", "primary": true }] }
+        ]
+      }
+    ],
+    "home-alerts": [
+      { "text": "Онлайн-регистрация Air Serbia из Цюриха закрывается за 3 часа до вылета (в 06:35). Стойки регистрации закрываются в 08:50." }
+    ]
+  }
+}
