@@ -1,16 +1,19 @@
 import Link from "next/link";
 import Header from "@/components/Header";
+import OfflineBanner from "@/components/OfflineBanner";
 import TripCard from "@/components/TripCard";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type Trip = {
   id: string;
   slug: string;
   title: string;
+  subtitle: string | null;
   country: string | null;
   date_from: string;
   date_to: string;
   cover_photo_path: string | null;
+  color: string;
   archived_at: string | null;
 };
 
@@ -18,10 +21,12 @@ export const dynamic = "force-dynamic";
 
 async function loadTrips(): Promise<Trip[]> {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
+    const admin = createAdminClient();
+    const { data, error } = await admin
       .from("trips")
-      .select("id,slug,title,country,date_from,date_to,cover_photo_path,archived_at")
+      .select(
+        "id,slug,title,subtitle,country,date_from,date_to,cover_photo_path,color,archived_at"
+      )
       .order("date_from", { ascending: true });
     if (error) {
       console.error("[home] supabase error:", error.message);
@@ -53,9 +58,10 @@ export default async function HomePage() {
 
   return (
     <>
+      <OfflineBanner />
       <Header title="Поездки" subtitle="Кирилл и Марина" />
 
-      <div className="px-5 pb-32">
+      <div className="px-5 pb-32 pt-2">
         {empty ? (
           <EmptyState />
         ) : (
@@ -70,6 +76,7 @@ export default async function HomePage() {
                   dateFrom={hero.date_from}
                   dateTo={hero.date_to}
                   coverUrl={null}
+                  color={hero.color}
                 />
               </div>
             )}
@@ -86,6 +93,7 @@ export default async function HomePage() {
                       dateFrom={t.date_from}
                       dateTo={t.date_to}
                       coverUrl={null}
+                      color={t.color}
                     />
                   ))}
                 </Grid>
@@ -104,6 +112,8 @@ export default async function HomePage() {
                       dateFrom={t.date_from}
                       dateTo={t.date_to}
                       coverUrl={null}
+                      color={t.color}
+                      muted
                     />
                   ))}
                 </Grid>
@@ -153,8 +163,8 @@ function EmptyState() {
       <p className="text-text-main font-medium text-[16px]">
         Поездок пока нет
       </p>
-      <p className="text-text-sec text-[13px] mt-1">
-        Создайте первую поездку или скажите Cowork:
+      <p className="text-text-sec text-[13px] mt-1 leading-relaxed">
+        Создайте первую поездку кнопкой ниже или скажите Cowork:
         <br />
         «Добавь поездку из папки Черногория».
       </p>
