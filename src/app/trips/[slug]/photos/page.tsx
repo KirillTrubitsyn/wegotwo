@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,7 @@ export default async function PhotosPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
+  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   return (
     <>
@@ -111,9 +113,13 @@ export default async function PhotosPage({
             ? {
                 primaryTz: trip.primary_tz,
                 color: trip.color,
-                clockLabel: trip.country
-                  ? trip.country.slice(0, 3).toUpperCase()
-                  : "TZ",
+                clockLabel:
+                  stayCity?.label ??
+                  (trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
                 hideClock: false,
               }
             : null

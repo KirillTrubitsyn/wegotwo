@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { format, parseISO } from "date-fns";
-import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  CATEGORY_LABELS,
-  PAYER_LABELS,
-  formatMoney,
-} from "@/lib/budget/labels";
+import { convert } from "@/lib/rates/cbr";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
+import BudgetBody, {
+  type CurrencyView,
+  type DisplayCurrency,
+  type ExpenseMeta,
+} from "./BudgetBody";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +37,9 @@ type ExpenseRow = {
   currency_original: string;
   amount_base: number | string;
   currency_base: string;
-  paid_by_username: string | null;
-  split: string;
 };
+
+const DISPLAY_CURRENCIES: DisplayCurrency[] = ["RUB", "EUR", "USD", "CHF"];
 
 function toNum(v: number | string | null | undefined): number {
   if (v == null) return 0;
@@ -66,7 +66,7 @@ export default async function BudgetPage({
   const { data: expData } = await admin
     .from("expenses")
     .select(
-      "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base,paid_by_username,split"
+      "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base"
     )
     .eq("trip_id", trip.id)
     .order("occurred_on", { ascending: false })
@@ -74,47 +74,74 @@ export default async function BudgetPage({
 
   const expenses = (expData ?? []) as ExpenseRow[];
 
-  // Totals in base currency
-  let totalBase = 0;
-  const byCategory = new Map<string, number>();
-  let paidKirill = 0;
-  let paidMarina = 0;
-  let paidBoth = 0;
-  let sharedBase = 0; // sum of equal-split amounts
+  // Precompute per-display-currency amounts for every expense, reusing
+  // the CBR cache. We start from `amount_original` / `currency_original`
+  // on `occurred_on` so we pick up fresh rates rather than cascading
+  // through the trip's base currency.
+  const views: Record<DisplayCurrency, CurrencyView> = {
+    RUB: { total: 0, byCategory: {}, amounts: {} },
+    EUR: { total: 0, byCategory: {}, amounts: {} },
+    USD: { total: 0, byCategory: {}, amounts: {} },
+    CHF: { total: 0, byCategory: {}, amounts: {} },
+  };
+  let missingRates = false;
 
   for (const e of expenses) {
-    const amt = toNum(e.amount_base);
-    totalBase += amt;
-    byCategory.set(e.category, (byCategory.get(e.category) ?? 0) + amt);
-    if (e.paid_by_username === "kirill") paidKirill += amt;
-    else if (e.paid_by_username === "marina") paidMarina += amt;
-    else if (e.paid_by_username === "both") paidBoth += amt;
-    if (e.split === "equal") sharedBase += amt;
+    const from = e.currency_original;
+    const amtOrig = toNum(e.amount_original);
+    const amtBase = toNum(e.amount_base);
+    const date = e.occurred_on;
+
+    for (const target of DISPLAY_CURRENCIES) {
+      let amt: number;
+      if (from === target) {
+        amt = amtOrig;
+      } else if (e.currency_base === target) {
+        amt = amtBase;
+      } else {
+        const conv = await convert(admin, amtOrig, from, target, date);
+        if (conv) {
+          amt = conv.amount;
+        } else {
+          missingRates = true;
+          amt = 0; // skip contribution; row will fall back to original
+        }
+      }
+      const v = views[target];
+      v.amounts[e.id] = amt;
+      v.total += amt;
+      v.byCategory[e.category] = (v.byCategory[e.category] ?? 0) + amt;
+    }
   }
 
-  // Balance: for each shared expense, each person owes half. If Kirill
-  // paid it, Marina owes Kirill half. Payer "both" counts as already
-  // split. The resulting balance is positive when Marina owes Kirill.
-  let balanceMarinaOwesKirill = 0;
-  for (const e of expenses) {
-    if (e.split !== "equal") continue;
-    const amt = toNum(e.amount_base);
-    const half = amt / 2;
-    if (e.paid_by_username === "kirill") balanceMarinaOwesKirill += half;
-    else if (e.paid_by_username === "marina") balanceMarinaOwesKirill -= half;
-    // "both" is 50/50 by construction, so no transfer needed.
+  // Round totals / category sums to 2 decimals so display is clean.
+  for (const tgt of DISPLAY_CURRENCIES) {
+    const v = views[tgt];
+    v.total = Math.round(v.total * 100) / 100;
+    for (const k of Object.keys(v.byCategory)) {
+      v.byCategory[k] = Math.round(v.byCategory[k] * 100) / 100;
+    }
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
+  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
-  // Group expenses by date for rendering
-  const groups = new Map<string, ExpenseRow[]>();
-  for (const e of expenses) {
-    const arr = groups.get(e.occurred_on) ?? [];
-    arr.push(e);
-    groups.set(e.occurred_on, arr);
-  }
+  const expensesMeta: ExpenseMeta[] = expenses.map((e) => ({
+    id: e.id,
+    occurred_on: e.occurred_on,
+    category: e.category,
+    merchant: e.merchant,
+    description: e.description,
+    amount_original: toNum(e.amount_original),
+    currency_original: e.currency_original,
+  }));
+
+  const defaultCurrency: DisplayCurrency = DISPLAY_CURRENCIES.includes(
+    trip.base_currency as DisplayCurrency
+  )
+    ? (trip.base_currency as DisplayCurrency)
+    : "RUB";
 
   return (
     <>
@@ -128,9 +155,13 @@ export default async function BudgetPage({
             ? {
                 primaryTz: trip.primary_tz,
                 color: trip.color,
-                clockLabel: trip.country
-                  ? trip.country.slice(0, 3).toUpperCase()
-                  : "TZ",
+                clockLabel: stayCity?.label ?? (
+                  trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"
+                ),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
                 hideClock: false,
               }
             : null
@@ -138,144 +169,14 @@ export default async function BudgetPage({
       />
 
       <div className="px-5 pb-28 pt-4 space-y-4">
-        {/* Totals card */}
-        <div className="bg-white rounded-card shadow-card p-5">
-          <div className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-2">
-            Итого потрачено
-          </div>
-          <div className="font-mono text-[28px] font-bold text-text-main tnum">
-            {formatMoney(totalBase, trip.base_currency)}
-          </div>
-          {expenses.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-black/[0.06] grid grid-cols-3 gap-3 text-[12px] text-text-sec">
-              <Pane
-                label="Кирилл"
-                value={formatMoney(paidKirill, trip.base_currency)}
-              />
-              <Pane
-                label="Марина"
-                value={formatMoney(paidMarina, trip.base_currency)}
-              />
-              <Pane
-                label="Оба"
-                value={formatMoney(paidBoth, trip.base_currency)}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Balance card */}
-        {expenses.length > 0 && sharedBase > 0 && (
-          <div className="bg-white rounded-card shadow-card p-5">
-            <div className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-1">
-              Баланс
-            </div>
-            {Math.abs(balanceMarinaOwesKirill) < 0.01 ? (
-              <div className="text-[15px] text-text-main">
-                Всё ровно.
-              </div>
-            ) : balanceMarinaOwesKirill > 0 ? (
-              <div className="text-[15px] text-text-main">
-                Марина должна Кириллу{" "}
-                <span className="font-mono font-bold tnum">
-                  {formatMoney(balanceMarinaOwesKirill, trip.base_currency)}
-                </span>
-              </div>
-            ) : (
-              <div className="text-[15px] text-text-main">
-                Кирилл должен Марине{" "}
-                <span className="font-mono font-bold tnum">
-                  {formatMoney(
-                    Math.abs(balanceMarinaOwesKirill),
-                    trip.base_currency
-                  )}
-                </span>
-              </div>
-            )}
-            <div className="text-[12px] text-text-sec mt-1">
-              По расходам, помеченным как «пополам».
-            </div>
-          </div>
-        )}
-
-        {/* Category breakdown */}
-        {byCategory.size > 0 && (
-          <div className="bg-white rounded-card shadow-card p-5">
-            <div className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-3">
-              По категориям
-            </div>
-            <div className="space-y-2">
-              {Array.from(byCategory.entries())
-                .sort((a, b) => b[1] - a[1])
-                .map(([cat, sum]) => {
-                  const pct = totalBase > 0 ? (sum / totalBase) * 100 : 0;
-                  const label = CATEGORY_LABELS[cat] ?? {
-                    label: cat,
-                    icon: "•",
-                  };
-                  return (
-                    <div key={cat}>
-                      <div className="flex items-center justify-between text-[13px]">
-                        <span className="text-text-main">
-                          {label.icon} {label.label}
-                        </span>
-                        <span className="font-mono text-text-sec tnum">
-                          {formatMoney(sum, trip.base_currency)}
-                        </span>
-                      </div>
-                      <div className="h-[3px] bg-bg-surface rounded-full mt-1 overflow-hidden">
-                        <div
-                          className="h-full bg-blue"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        )}
-
-        {/* Expenses list by day */}
-        {expenses.length === 0 ? (
-          <div className="rounded-card bg-white shadow-card p-6 text-center">
-            <p className="text-text-main font-medium text-[15px]">
-              Расходов пока нет
-            </p>
-            <p className="text-text-sec text-[13px] mt-1">
-              Добавьте первый расход кнопкой ниже.
-            </p>
-          </div>
-        ) : (
-          Array.from(groups.entries()).map(([date, rows]) => {
-            const dayTotal = rows.reduce(
-              (s, e) => s + toNum(e.amount_base),
-              0
-            );
-            return (
-              <section key={date}>
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold">
-                    {format(parseISO(date), "EEE, d MMMM", { locale: ru })}
-                  </h2>
-                  <span className="text-[12px] font-mono text-text-sec tnum">
-                    {formatMoney(dayTotal, trip.base_currency)}
-                  </span>
-                </div>
-                <div className="bg-white rounded-card shadow-card divide-y divide-black/[0.05]">
-                  {rows.map((e) => (
-                    <ExpenseRowView
-                      key={e.id}
-                      expense={e}
-                      tripSlug={trip.slug}
-                      baseCurrency={trip.base_currency}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })
-        )}
+        <BudgetBody
+          slug={trip.slug}
+          expenses={expensesMeta}
+          views={views}
+          displayCurrencies={DISPLAY_CURRENCIES}
+          defaultCurrency={defaultCurrency}
+          missingRates={missingRates}
+        />
       </div>
 
       <Link
@@ -287,72 +188,5 @@ export default async function BudgetPage({
 
       <BottomNav slug={trip.slug} />
     </>
-  );
-}
-
-function Pane({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.4px] font-semibold">
-        {label}
-      </div>
-      <div className="font-mono tnum text-text-main text-[13px] mt-[2px]">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function ExpenseRowView({
-  expense: e,
-  tripSlug,
-  baseCurrency,
-}: {
-  expense: ExpenseRow;
-  tripSlug: string;
-  baseCurrency: string;
-}) {
-  const cat = CATEGORY_LABELS[e.category] ?? { label: e.category, icon: "•" };
-  const amtBase = toNum(e.amount_base);
-  const amtOrig = toNum(e.amount_original);
-  const showOriginal = e.currency_original !== baseCurrency;
-  const title = e.merchant || e.description || cat.label;
-  const subtitle = e.merchant && e.description ? e.description : null;
-
-  return (
-    <Link
-      href={`/trips/${tripSlug}/budget/${e.id}`}
-      className="flex items-center gap-3 px-4 py-3 active:bg-bg-surface"
-    >
-      <div className="w-8 h-8 rounded-full bg-bg-surface flex items-center justify-center text-[14px] flex-shrink-0">
-        {cat.icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-medium text-text-main truncate">
-          {title}
-        </div>
-        <div className="text-[12px] text-text-sec truncate">
-          {cat.label}
-          {e.paid_by_username && (
-            <>
-              {" · "}
-              {PAYER_LABELS[e.paid_by_username] ?? e.paid_by_username}
-              {e.split === "equal" ? " · пополам" : ""}
-            </>
-          )}
-          {subtitle ? ` · ${subtitle}` : ""}
-        </div>
-      </div>
-      <div className="text-right flex-shrink-0">
-        <div className="font-mono text-[14px] font-semibold text-text-main tnum">
-          {formatMoney(amtBase, baseCurrency)}
-        </div>
-        {showOriginal && (
-          <div className="font-mono text-[11px] text-text-sec tnum">
-            {formatMoney(amtOrig, e.currency_original)}
-          </div>
-        )}
-      </div>
-    </Link>
   );
 }

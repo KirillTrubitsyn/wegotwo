@@ -23,6 +23,11 @@ import {
   type StayFields,
   type ExpenseFields,
 } from "@/lib/gemini/schema";
+import {
+  createEventsForFlight,
+  createEventsForStay,
+  createEventsForExpense,
+} from "@/lib/ingest/events";
 
 export type CommitResult =
   | { ok: true; kind: "flight" | "stay" | "expense"; rowId: string; created: boolean }
@@ -60,23 +65,68 @@ export async function commitParsedDocument(
     return { ok: false, error: "Документ не распознан. Создавать нечего." };
   }
 
-  // Load trip for base_currency fallback on expenses.
+  // Load trip for base_currency fallback on expenses and timezone
+  // for event start_at derivation.
   const { data: trip } = await admin
     .from("trips")
-    .select("id,base_currency")
+    .select("id,base_currency,primary_tz")
     .eq("id", tripId)
     .maybeSingle();
   if (!trip) return { ok: false, error: "Поездка не найдена" };
-  const baseCurrency = (trip as { base_currency: string }).base_currency || "RUB";
+  const baseCurrency =
+    (trip as { base_currency: string }).base_currency || "RUB";
+  const primaryTz =
+    (trip as { primary_tz: string }).primary_tz || "Europe/Moscow";
+  const tripCtx = { id: tripId, primary_tz: primaryTz };
 
   if (pd.type === "flight") {
-    return commitFlight(admin, tripId, docId, pd.flight);
+    const res = await commitFlight(admin, tripId, docId, pd.flight);
+    if (res.ok) {
+      try {
+        await createEventsForFlight(admin, tripCtx, pd.flight);
+      } catch (e) {
+        console.error("[commit] createEventsForFlight:", e);
+      }
+    }
+    return res;
   }
   if (pd.type === "stay") {
-    return commitStay(admin, tripId, docId, pd.stay);
+    const res = await commitStay(admin, tripId, docId, pd.stay);
+    if (res.ok) {
+      // Look up destination_id we resolved (or null) for the stay.
+      const { data: stay } = await admin
+        .from("stays")
+        .select("destination_id")
+        .eq("id", res.rowId)
+        .maybeSingle();
+      const destId =
+        (stay as { destination_id: string | null } | null)?.destination_id ??
+        null;
+      try {
+        await createEventsForStay(admin, tripCtx, pd.stay, destId);
+      } catch (e) {
+        console.error("[commit] createEventsForStay:", e);
+      }
+    }
+    return res;
   }
   if (pd.type === "expense") {
-    return commitExpense(admin, tripId, docId, pd.expense, baseCurrency, username);
+    const res = await commitExpense(
+      admin,
+      tripId,
+      docId,
+      pd.expense,
+      baseCurrency,
+      username
+    );
+    if (res.ok) {
+      try {
+        await createEventsForExpense(admin, tripCtx, pd.expense);
+      } catch (e) {
+        console.error("[commit] createEventsForExpense:", e);
+      }
+    }
+    return res;
   }
   return { ok: false, error: "Неизвестный тип документа" };
 }

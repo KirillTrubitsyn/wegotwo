@@ -29,6 +29,24 @@ export async function signedDocUrl(
 }
 
 /**
+ * Same as `signedDocUrl`, but asks Supabase to respond with
+ * `Content-Disposition: attachment; filename=...` so the browser
+ * downloads the file rather than inline-previewing it.
+ */
+export async function signedDocDownloadUrl(
+  admin: SupabaseClient,
+  storagePath: string,
+  filename: string,
+  expiresIn = 60 * 60
+): Promise<string | null> {
+  const { data, error } = await admin.storage
+    .from(DOCS_BUCKET)
+    .createSignedUrl(storagePath, expiresIn, { download: filename });
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
+}
+
+/**
  * Compute a hex SHA-256 of an ArrayBuffer using Web Crypto.
  * Used for dedup on the `documents.content_hash` unique index.
  */

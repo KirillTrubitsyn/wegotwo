@@ -9,6 +9,7 @@ import DayCard from "@/components/DayCard";
 import OfflineBanner from "@/components/OfflineBanner";
 import CityTabs, { type CityTab } from "@/components/CityTabs";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -135,6 +136,8 @@ export default async function TripOverviewPage({
     );
   }
 
+  const stayCity = await resolveHeaderDestination(admin, trip.id);
+
   const previewStart = Math.max(
     0,
     allDays.findIndex((d) => d.date >= today)
@@ -155,9 +158,13 @@ export default async function TripOverviewPage({
             ? {
                 primaryTz: trip.primary_tz,
                 color: trip.color,
-                clockLabel: trip.country
-                  ? trip.country.slice(0, 3).toUpperCase()
-                  : "TZ",
+                clockLabel:
+                  stayCity?.label ??
+                  (trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
                 hideClock: false,
               }
             : null

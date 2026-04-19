@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
 import Timeline, { type TimelineEvent } from "@/components/Timeline";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { formatTimeInTz } from "@/lib/format-tz";
 import { updateDayMetaAction } from "../actions";
 
@@ -132,6 +133,7 @@ export default async function DayDetailPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
+  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   const dateLabel = format(parseISO(day.date), "EEEE, d MMMM yyyy", {
     locale: ru,
@@ -149,9 +151,13 @@ export default async function DayDetailPage({
             ? {
                 primaryTz: trip.primary_tz,
                 color: trip.color,
-                clockLabel: trip.country
-                  ? trip.country.slice(0, 3).toUpperCase()
-                  : "TZ",
+                clockLabel:
+                  stayCity?.label ??
+                  (trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
                 hideClock: false,
               }
             : null

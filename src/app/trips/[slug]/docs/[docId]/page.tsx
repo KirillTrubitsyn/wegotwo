@@ -12,7 +12,8 @@ import {
 import PdfPreview from "../PdfPreview";
 import IngestPanel from "./IngestPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { signedDocUrl } from "@/lib/docs/storage";
+import { signedDocUrl, signedDocDownloadUrl } from "@/lib/docs/storage";
+import { extForMime } from "@/lib/docs/labels";
 import {
   DOC_KIND_LABELS,
   formatBytes,
@@ -116,6 +117,18 @@ export default async function DocDetailPage({
   }
 
   const url = await signedDocUrl(admin, doc.storage_path);
+  // Filename for Content-Disposition — fall back to a sane default when
+  // the title has no extension.
+  const ext = extForMime(doc.mime ?? "", "bin");
+  const safeBase = (doc.title || "document").replace(/[\\/:*?"<>|]+/g, "_");
+  const downloadName = /\.[a-z0-9]{2,5}$/i.test(safeBase)
+    ? safeBase
+    : `${safeBase}.${ext}`;
+  const downloadUrl = await signedDocDownloadUrl(
+    admin,
+    doc.storage_path,
+    downloadName
+  );
   const isPdf = doc.mime === "application/pdf";
   const isImage = (doc.mime ?? "").startsWith("image/");
   const label = labelForKind(doc.kind);
@@ -193,14 +206,25 @@ export default async function DocDetailPage({
         )}
 
         {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="block w-full bg-white border border-black/[0.08] rounded-btn py-[12px] text-center text-[14px] font-medium text-text-main active:bg-bg-surface"
-          >
-            Открыть в новом окне
-          </a>
+          <div className="grid grid-cols-2 gap-2">
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="block bg-white border border-black/[0.08] rounded-btn py-[12px] text-center text-[14px] font-medium text-text-main active:bg-bg-surface"
+            >
+              Открыть
+            </a>
+            {downloadUrl && (
+              <a
+                href={downloadUrl}
+                download={downloadName}
+                className="block bg-text-main text-white rounded-btn py-[12px] text-center text-[14px] font-medium active:opacity-85"
+              >
+                Скачать оригинал
+              </a>
+            )}
+          </div>
         )}
 
         {/* AI ingest */}
