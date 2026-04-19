@@ -1,0 +1,54 @@
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: {
+    template: "%s · WeGoTwo",
+    default: "WeGoTwo",
+  },
+  description: "Приватный планировщик поездок",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "WeGoTwo",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      {
+        url: "/icons/apple-touch-icon-180x180.png",
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#FFFFFF",
+  viewportFit: "cover",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="ru">
+      <body>
+        <div className="min-h-[100svh] mx-auto max-w-app bg-white shadow-[0_0_60px_rgba(0,0,0,0.04)]">
+          {children}
+        </div>
+      </body>
+    </html>
+  );
+}
