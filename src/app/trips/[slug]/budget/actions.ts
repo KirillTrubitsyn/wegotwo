@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUsername } from "@/lib/auth/current-user";
 import { convert } from "@/lib/rates/cbr";
+import { resolveDestinationForDate } from "@/lib/trips/destinations";
 
 const CATEGORIES = [
   "flight",
@@ -137,8 +138,15 @@ export async function createExpenseAction(
     };
   }
 
+  const destinationId = await resolveDestinationForDate(
+    admin,
+    trip.id,
+    parsed.data.occurred_on
+  );
+
   const { error } = await admin.from("expenses").insert({
     trip_id: trip.id,
+    destination_id: destinationId,
     occurred_on: parsed.data.occurred_on,
     category: parsed.data.category,
     merchant: parsed.data.merchant || null,
@@ -199,10 +207,17 @@ export async function updateExpenseAction(
     };
   }
 
+  const destinationId = await resolveDestinationForDate(
+    admin,
+    trip.id,
+    parsed.data.occurred_on
+  );
+
   const { error } = await admin
     .from("expenses")
     .update({
       occurred_on: parsed.data.occurred_on,
+      destination_id: destinationId,
       category: parsed.data.category,
       merchant: parsed.data.merchant || null,
       description: parsed.data.description || null,

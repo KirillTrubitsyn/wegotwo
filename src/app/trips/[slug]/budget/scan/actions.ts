@@ -44,6 +44,7 @@ import {
 } from "@/lib/gemini/schema";
 import { commitParsedDocument } from "@/lib/ingest/commit";
 import type { ExpenseItem } from "@/lib/gemini/schema";
+import { resolveDestinationForDate } from "@/lib/trips/destinations";
 
 const ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -419,11 +420,18 @@ export async function commitScanAction(
   // split_summary живёт отдельно от parsed_fields: сам разбор делал
   // пользователь в форме, а не Gemini, поэтому мы пишем его напрямую
   // в expenses.split_summary после того, как commit создал row.
-  if (res.kind === "expense" && splitSummary) {
-    await admin
-      .from("expenses")
-      .update({ split_summary: splitSummary })
-      .eq("id", res.rowId);
+  // Заодно подтягиваем destination_id по дате чека (на случай если
+  // commitExpense выполнил это ДО того, как пользователь изменил дату
+  // в форме сканирования — здесь actions.ts пишет финальную дату).
+  if (res.kind === "expense") {
+    const destinationId = await resolveDestinationForDate(
+      admin,
+      trip.id,
+      parsed.data.occurred_on
+    );
+    const patch: Record<string, unknown> = { destination_id: destinationId };
+    if (splitSummary) patch.split_summary = splitSummary;
+    await admin.from("expenses").update(patch).eq("id", res.rowId);
   }
 
   revalidatePath(`/trips/${slug}/budget`);

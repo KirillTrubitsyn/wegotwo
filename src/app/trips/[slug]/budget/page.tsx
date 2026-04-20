@@ -8,6 +8,7 @@ import { prefetchRates, rateKey } from "@/lib/rates/cbr";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import BudgetBody, {
   type CurrencyView,
+  type DestinationOpt,
   type DisplayCurrency,
   type ExpenseMeta,
 } from "./BudgetBody";
@@ -37,6 +38,7 @@ type ExpenseRow = {
   currency_original: string;
   amount_base: number | string;
   currency_base: string;
+  destination_id: string | null;
 };
 
 /**
@@ -75,21 +77,39 @@ export default async function BudgetPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  // Параллельно с основным запросом тянем сразу и header-контекст:
-  // одна точка wait вместо двух последовательных.
-  const [{ data: expData }, stayCity] = await Promise.all([
+  // Параллельно с основным запросом тянем сразу и header-контекст, и
+  // справочник городов поездки (для бейджей и фильтра).
+  const [{ data: expData }, stayCity, { data: destData }] = await Promise.all([
     admin
       .from("expenses")
       .select(
-        "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base"
+        "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base,destination_id"
       )
       .eq("trip_id", trip.id)
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false }),
     resolveHeaderDestination(admin, trip.id),
+    admin
+      .from("destinations")
+      .select("id,name,flag_code,sort_order,date_from")
+      .eq("trip_id", trip.id)
+      .eq("type", "stay")
+      .order("sort_order", { ascending: true })
+      .order("date_from", { ascending: true }),
   ]);
 
   const expenses = (expData ?? []) as ExpenseRow[];
+  const destinations = ((destData ?? []) as Array<{
+    id: string;
+    name: string;
+    flag_code: string | null;
+    sort_order: number | null;
+    date_from: string | null;
+  }>).map<DestinationOpt>((d) => ({
+    id: d.id,
+    name: d.name,
+    flagCode: d.flag_code,
+  }));
 
   const DISPLAY_CURRENCIES = buildDisplayCurrencies(trip.base_currency);
 
@@ -164,6 +184,7 @@ export default async function BudgetPage({
     description: e.description,
     amount_original: toNum(e.amount_original),
     currency_original: e.currency_original,
+    destination_id: e.destination_id,
   }));
 
   // Пользователь обычно смотрит расходы в валюте страны пребывания —
@@ -208,6 +229,7 @@ export default async function BudgetPage({
           displayCurrencies={DISPLAY_CURRENCIES}
           defaultCurrency={defaultCurrency}
           missingRates={missingRates}
+          destinations={destinations}
         />
       </div>
 

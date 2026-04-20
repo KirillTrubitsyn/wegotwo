@@ -7,7 +7,7 @@
  * currency so the client can switch instantly without a roundtrip.
  */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/budget/labels";
@@ -34,7 +34,36 @@ export type ExpenseMeta = {
   description: string | null;
   amount_original: number;
   currency_original: string;
+  destination_id: string | null;
 };
+
+export type DestinationOpt = {
+  id: string;
+  name: string;
+  flagCode: string | null;
+};
+
+type DestFilter = "all" | "none" | string;
+
+function Flag({ code }: { code: string | null }) {
+  if (!code) return null;
+  const cc = code.toLowerCase();
+  return (
+    <span
+      className="inline-block w-[14px] h-[10px] bg-contain bg-no-repeat bg-center rounded-[1px] align-[-1px]"
+      style={{ backgroundImage: `url(https://flagcdn.com/w40/${cc}.png)` }}
+    />
+  );
+}
+
+function CityChip({ dest }: { dest: DestinationOpt }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-[6px] bg-blue-lt text-blue text-[10px] font-semibold px-[6px] py-[2px] tracking-[0.2px]">
+      <Flag code={dest.flagCode} />
+      <span className="uppercase">{dest.name}</span>
+    </span>
+  );
+}
 
 export default function BudgetBody({
   slug,
@@ -43,6 +72,7 @@ export default function BudgetBody({
   displayCurrencies,
   defaultCurrency,
   missingRates,
+  destinations,
 }: {
   slug: string;
   expenses: ExpenseMeta[];
@@ -50,19 +80,63 @@ export default function BudgetBody({
   displayCurrencies: DisplayCurrency[];
   defaultCurrency: DisplayCurrency;
   missingRates: boolean;
+  destinations: DestinationOpt[];
 }) {
   const [cur, setCur] = useState<DisplayCurrency>(defaultCurrency);
-  const view = views[cur];
+  const [destFilter, setDestFilter] = useState<DestFilter>("all");
+
+  const destMap = useMemo(
+    () => new Map(destinations.map((d) => [d.id, d])),
+    [destinations]
+  );
+
+  // Список городов, которые реально содержат траты — скрываем
+  // таб «Без города», если все траты привязаны.
+  const hasUnassigned = useMemo(
+    () => expenses.some((e) => e.destination_id == null),
+    [expenses]
+  );
+
+  const visibleExpenses = useMemo(() => {
+    if (destFilter === "all") return expenses;
+    if (destFilter === "none")
+      return expenses.filter((e) => e.destination_id == null);
+    return expenses.filter((e) => e.destination_id === destFilter);
+  }, [expenses, destFilter]);
+
+  const view = useMemo<CurrencyView>(() => {
+    const base = views[cur];
+    if (destFilter === "all") return base;
+    // Пересчёт total и byCategory по видимому срезу. amounts
+    // остаются общими, потому что ключ — expense.id.
+    let total = 0;
+    const byCategory: Record<string, number> = {};
+    for (const e of visibleExpenses) {
+      const amt = base.amounts[e.id] ?? 0;
+      total += amt;
+      byCategory[e.category] = (byCategory[e.category] ?? 0) + amt;
+    }
+    return {
+      total: Math.round(total * 100) / 100,
+      byCategory: Object.fromEntries(
+        Object.entries(byCategory).map(([k, v]) => [
+          k,
+          Math.round(v * 100) / 100,
+        ])
+      ),
+      amounts: base.amounts,
+    };
+  }, [views, cur, destFilter, visibleExpenses]);
 
   const groups = useMemo(() => {
     const m = new Map<string, ExpenseMeta[]>();
-    for (const e of expenses) {
+    for (const e of visibleExpenses) {
       const arr = m.get(e.occurred_on) ?? [];
       arr.push(e);
       m.set(e.occurred_on, arr);
     }
     return m;
-  }, [expenses]);
+  }, [visibleExpenses]);
 
   const categoryEntries = Object.entries(view.byCategory).sort(
     (a, b) => b[1] - a[1]
@@ -91,6 +165,36 @@ export default function BudgetBody({
           </div>
         )}
       </div>
+
+      {/* Destination filter */}
+      {destinations.length > 1 && (
+        <div className="flex gap-[6px] overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+          <DestButton
+            active={destFilter === "all"}
+            onClick={() => setDestFilter("all")}
+          >
+            Все
+          </DestButton>
+          {destinations.map((d) => (
+            <DestButton
+              key={d.id}
+              active={destFilter === d.id}
+              onClick={() => setDestFilter(d.id)}
+            >
+              <Flag code={d.flagCode} />
+              <span>{d.name}</span>
+            </DestButton>
+          ))}
+          {hasUnassigned && (
+            <DestButton
+              active={destFilter === "none"}
+              onClick={() => setDestFilter("none")}
+            >
+              Без города
+            </DestButton>
+          )}
+        </div>
+      )}
 
       {/* Category breakdown */}
       {categoryEntries.length > 0 && (
@@ -162,6 +266,11 @@ export default function BudgetBody({
                     tripSlug={slug}
                     amount={view.amounts[e.id] ?? 0}
                     displayCurrency={cur}
+                    destination={
+                      e.destination_id
+                        ? destMap.get(e.destination_id) ?? null
+                        : null
+                    }
                   />
                 ))}
               </div>
@@ -207,11 +316,13 @@ function ExpenseRowView({
   tripSlug,
   amount,
   displayCurrency,
+  destination,
 }: {
   expense: ExpenseMeta;
   tripSlug: string;
   amount: number;
   displayCurrency: DisplayCurrency;
+  destination: DestinationOpt | null;
 }) {
   const cat = CATEGORY_LABELS[e.category] ?? { label: e.category, icon: "•" };
   const showOriginal = e.currency_original !== displayCurrency;
@@ -227,8 +338,11 @@ function ExpenseRowView({
         {cat.icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-medium text-text-main truncate">
-          {title}
+        <div className="flex items-center gap-[6px] min-w-0">
+          <span className="text-[14px] font-medium text-text-main truncate">
+            {title}
+          </span>
+          {destination && <CityChip dest={destination} />}
         </div>
         <div className="text-[12px] text-text-sec truncate">
           {cat.label}
@@ -246,5 +360,29 @@ function ExpenseRowView({
         )}
       </div>
     </Link>
+  );
+}
+
+function DestButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex-shrink-0 inline-flex items-center gap-[6px] rounded-[10px] px-[12px] py-[7px] text-[12px] font-semibold transition-colors whitespace-nowrap ${
+        active
+          ? "bg-text-main text-white"
+          : "bg-white text-text-main border border-black/[0.08]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

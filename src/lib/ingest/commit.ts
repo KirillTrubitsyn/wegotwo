@@ -28,6 +28,7 @@ import {
   createEventsForStay,
   createEventsForExpense,
 } from "@/lib/ingest/events";
+import { resolveDestinationForDate } from "@/lib/trips/destinations";
 
 export type CommitResult =
   | { ok: true; kind: "flight" | "stay" | "expense"; rowId: string; created: boolean }
@@ -464,11 +465,22 @@ async function commitExpense(
     dayId = (day as { id: string } | null)?.id ?? null;
   }
 
+  // Привязываем расход к городу (destination), в диапазон дат которого
+  // попадает occurred_on. Если город не найден (транзит, траты до/после
+  // поездки), destination_id остаётся null — такие расходы попадут в
+  // корзину «Без города» в UI бюджета.
+  const destinationId = await resolveDestinationForDate(
+    admin,
+    tripId,
+    e.occurred_on
+  );
+
   const { data, error } = await admin
     .from("expenses")
     .insert({
       trip_id: tripId,
       day_id: dayId,
+      destination_id: destinationId,
       document_id: docId,
       occurred_on: e.occurred_on,
       category: e.category ?? "other",

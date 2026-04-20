@@ -8,6 +8,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import CityTabs, { type CityTab } from "@/components/CityTabs";
 import Flag from "@/components/Flag";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { CATEGORY_LABELS, formatMoney } from "@/lib/budget/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,28 @@ type Trip = {
   slug: string;
   title: string;
   country: string | null;
+  base_currency: string;
   primary_tz: string;
   color: string;
   date_from: string;
   date_to: string;
   archived_at: string | null;
 };
+
+type ExpenseRow = {
+  id: string;
+  category: string;
+  amount_base: number | string | null;
+  currency_base: string | null;
+  merchant: string | null;
+  description: string | null;
+  occurred_on: string | null;
+};
+
+function toNum(v: number | string | null | undefined): number {
+  if (v == null) return 0;
+  return typeof v === "string" ? Number(v) : v;
+}
 
 type Destination = {
   id: string;
@@ -100,7 +117,7 @@ export default async function DestinationPage({
   const { data: tripData } = await admin
     .from("trips")
     .select(
-      "id,slug,title,country,primary_tz,color,date_from,date_to,archived_at"
+      "id,slug,title,country,base_currency,primary_tz,color,date_from,date_to,archived_at"
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -137,14 +154,15 @@ export default async function DestinationPage({
     dateFrom: (t.date_from as string | null) ?? null,
   }));
 
-  // Параллелим stay (по dest.id) и signed URL обложки (по dest.photo_path).
+  // Параллелим stay, signed URL обложки, и список расходов, привязанных
+  // к этому городу. Три независимых запроса, ни один не блокирует другие.
   const coverPromise: Promise<string | null> = dest.photo_path
     ? admin.storage
         .from("photos")
         .createSignedUrl(dest.photo_path, 3600)
         .then((r) => r.data?.signedUrl ?? null)
     : Promise.resolve(null);
-  const [{ data: stayData }, coverUrl] = await Promise.all([
+  const [{ data: stayData }, coverUrl, { data: expData }] = await Promise.all([
     admin
       .from("stays")
       .select(
@@ -154,9 +172,34 @@ export default async function DestinationPage({
       .eq("destination_id", dest.id)
       .maybeSingle(),
     coverPromise,
+    admin
+      .from("expenses")
+      .select(
+        "id,category,amount_base,currency_base,merchant,description,occurred_on"
+      )
+      .eq("trip_id", trip.id)
+      .eq("destination_id", dest.id)
+      .order("occurred_on", { ascending: false }),
   ]);
   const stay = (stayData ?? null) as StayRow | null;
   const raw: StayRaw = stay?.raw ?? {};
+
+  // Агрегаты по расходам этого города. Суммы считаем в trip.base_currency,
+  // которую commit-слой уже записал в amount_base / currency_base.
+  const expenses = (expData ?? []) as ExpenseRow[];
+  const baseCurrency = trip.base_currency;
+  let expTotal = 0;
+  const expByCategory: Record<string, number> = {};
+  for (const e of expenses) {
+    if (e.currency_base !== baseCurrency) continue;
+    const amt = toNum(e.amount_base);
+    expTotal += amt;
+    expByCategory[e.category] = (expByCategory[e.category] ?? 0) + amt;
+  }
+  expTotal = Math.round(expTotal * 100) / 100;
+  const expCategoryEntries = Object.entries(expByCategory)
+    .map(([k, v]) => [k, Math.round(v * 100) / 100] as const)
+    .sort((a, b) => b[1] - a[1]);
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
@@ -375,6 +418,53 @@ export default async function DestinationPage({
         {!stay && (
           <div className="bg-white rounded-card shadow-card p-5 text-text-sec text-[13px]">
             Детали проживания для этого города ещё не заполнены.
+          </div>
+        )}
+
+        {/* Expenses by city */}
+        {expenses.length > 0 && (
+          <div className="bg-white rounded-card shadow-card p-5">
+            <div className="flex items-baseline justify-between mb-3">
+              <div className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold">
+                Траты в городе
+              </div>
+              <div className="font-mono text-[16px] font-bold text-text-main tnum">
+                {formatMoney(expTotal, baseCurrency)}
+              </div>
+            </div>
+            <div className="space-y-2 mb-4">
+              {expCategoryEntries.map(([cat, sum]) => {
+                const pct = expTotal > 0 ? (sum / expTotal) * 100 : 0;
+                const label = CATEGORY_LABELS[cat] ?? {
+                  label: cat,
+                  icon: "•",
+                };
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-text-main">
+                        {label.icon} {label.label}
+                      </span>
+                      <span className="font-mono text-text-sec tnum">
+                        {formatMoney(sum, baseCurrency)}
+                      </span>
+                    </div>
+                    <div className="h-[3px] bg-bg-surface rounded-full mt-1 overflow-hidden">
+                      <div
+                        className="h-full bg-blue"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <Link
+              href={`/trips/${trip.slug}/budget`}
+              className="inline-block text-[13px] text-blue font-medium"
+            >
+              Все траты поездки →
+            </Link>
           </div>
         )}
       </div>
