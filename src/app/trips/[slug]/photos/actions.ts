@@ -285,6 +285,22 @@ export async function deletePhotoAction(slug: string, photoId: string) {
     | null;
 
   if (row) {
+    // Если удаляемое фото — обложка поездки, обнуляем ссылку.
+    const { data: tripRow } = await admin
+      .from("trips")
+      .select("cover_photo_path")
+      .eq("id", row.trip_id)
+      .maybeSingle();
+    if (
+      (tripRow as { cover_photo_path: string | null } | null)
+        ?.cover_photo_path === row.storage_path
+    ) {
+      await admin
+        .from("trips")
+        .update({ cover_photo_path: null })
+        .eq("id", row.trip_id);
+    }
+
     await admin.from("photos").delete().eq("id", row.id);
     const paths = [row.storage_path, row.thumbnail_path].filter(
       (p): p is string => !!p
@@ -294,6 +310,52 @@ export async function deletePhotoAction(slug: string, photoId: string) {
     }
   }
 
+  revalidatePath("/");
   revalidatePath(`/trips/${slug}/photos`);
   revalidatePath(`/trips/${slug}`);
+}
+
+/**
+ * Выставляет (или снимает) обложку поездки. Передайте photoId, чтобы
+ * сделать фото обложкой, или null, чтобы вернуться к автоподбору
+ * (первое destination с фото).
+ */
+export async function setCoverPhotoAction(
+  slug: string,
+  photoId: string | null
+) {
+  const username = await getCurrentUsername();
+  if (!username) return;
+
+  const admin = createAdminClient();
+  const { data: tripRow } = await admin
+    .from("trips")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  const trip = tripRow as { id: string } | null;
+  if (!trip) return;
+
+  let coverPath: string | null = null;
+  if (photoId) {
+    const { data: photoRow } = await admin
+      .from("photos")
+      .select("storage_path")
+      .eq("id", photoId)
+      .eq("trip_id", trip.id)
+      .maybeSingle();
+    const p = photoRow as { storage_path: string } | null;
+    if (!p) return;
+    coverPath = p.storage_path;
+  }
+
+  await admin
+    .from("trips")
+    .update({ cover_photo_path: coverPath })
+    .eq("id", trip.id);
+
+  revalidatePath("/");
+  revalidatePath(`/trips/${slug}`);
+  revalidatePath(`/trips/${slug}/photos`);
+  if (photoId) revalidatePath(`/trips/${slug}/photos/${photoId}`);
 }

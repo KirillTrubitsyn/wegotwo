@@ -21,6 +21,7 @@ type Trip = {
   color: string;
   date_to: string;
   archived_at: string | null;
+  cover_photo_path: string | null;
 };
 
 type DayRow = { id: string; date: string };
@@ -46,7 +47,7 @@ export default async function PhotosPage({
   const { data: tripData } = await admin
     .from("trips")
     .select(
-      "id,slug,title,primary_tz,country,color,date_to,archived_at"
+      "id,slug,title,primary_tz,country,color,date_to,archived_at,cover_photo_path"
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -150,6 +151,7 @@ export default async function PhotosPage({
                   photos={rows}
                   tripSlug={trip.slug}
                   urlMap={urlMap}
+                  coverPath={trip.cover_photo_path}
                 />
               );
             })}
@@ -159,6 +161,7 @@ export default async function PhotosPage({
                 photos={noDate}
                 tripSlug={trip.slug}
                 urlMap={urlMap}
+                coverPath={trip.cover_photo_path}
               />
             )}
           </>
@@ -182,11 +185,13 @@ function PhotoGroup({
   photos,
   tripSlug,
   urlMap,
+  coverPath,
 }: {
   title: string;
   photos: PhotoRow[];
   tripSlug: string;
   urlMap: Map<string, string>;
+  coverPath: string | null;
 }) {
   return (
     <section>
@@ -200,11 +205,12 @@ function PhotoGroup({
         {photos.map((p) => {
           const path = p.thumbnail_path ?? p.storage_path;
           const url = path ? urlMap.get(path) : null;
+          const isCover = coverPath != null && p.storage_path === coverPath;
           return (
             <Link
               key={p.id}
               href={`/trips/${tripSlug}/photos/${p.id}`}
-              className="aspect-square bg-bg-surface rounded-[10px] overflow-hidden active:opacity-80"
+              className="relative aspect-square bg-bg-surface rounded-[10px] overflow-hidden active:opacity-80"
             >
               {url ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -216,6 +222,17 @@ function PhotoGroup({
                 />
               ) : (
                 <div className="w-full h-full" />
+              )}
+              {isCover && (
+                <span
+                  className="absolute top-1.5 left-1.5 bg-black/55 backdrop-blur-sm text-white text-[10px] font-semibold uppercase tracking-[0.5px] rounded-full px-2 py-[3px] flex items-center gap-1"
+                  aria-label="Обложка поездки"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18 22l-6-3.6L6 22l1.5-7.2L2 10l7.1-1.1L12 2z" />
+                  </svg>
+                  Обложка
+                </span>
               )}
             </Link>
           );

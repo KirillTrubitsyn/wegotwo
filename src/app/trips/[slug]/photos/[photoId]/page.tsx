@@ -7,6 +7,7 @@ import PhotoEditForm from "./PhotoEditForm";
 import {
   updatePhotoAction,
   deletePhotoAction,
+  setCoverPhotoAction,
   type PhotoActionState,
 } from "../actions";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,7 +16,12 @@ export const dynamic = "force-dynamic";
 
 const PHOTOS_BUCKET = "photos";
 
-type Trip = { id: string; slug: string; title: string };
+type Trip = {
+  id: string;
+  slug: string;
+  title: string;
+  cover_photo_path: string | null;
+};
 
 type DayRow = { id: string; date: string };
 
@@ -41,7 +47,7 @@ export default async function PhotoDetailPage({
 
   const { data: tripData } = await admin
     .from("trips")
-    .select("id,slug,title")
+    .select("id,slug,title,cover_photo_path")
     .eq("slug", slug)
     .maybeSingle();
   if (!tripData) notFound();
@@ -82,6 +88,10 @@ export default async function PhotoDetailPage({
     id: d.id,
     label: format(parseISO(d.date), "EEE, d MMMM", { locale: ru }),
   }));
+
+  const isCover =
+    trip.cover_photo_path != null &&
+    trip.cover_photo_path === photo.storage_path;
 
   return (
     <>
@@ -137,6 +147,24 @@ export default async function PhotoDetailPage({
             backHref={`/trips/${slug}/photos`}
           />
         </section>
+
+        <form
+          action={async () => {
+            "use server";
+            await setCoverPhotoAction(slug, isCover ? null : photoId);
+          }}
+        >
+          <button
+            type="submit"
+            className={
+              isCover
+                ? "w-full bg-white border border-black/10 text-text-main rounded-btn py-[12px] text-[14px] font-medium active:bg-bg-surface"
+                : "w-full bg-blue-lt text-blue rounded-btn py-[12px] text-[14px] font-semibold active:opacity-85"
+            }
+          >
+            {isCover ? "Убрать с обложки" : "Сделать обложкой поездки"}
+          </button>
+        </form>
 
         <form
           action={async () => {
