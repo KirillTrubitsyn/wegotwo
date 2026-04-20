@@ -79,17 +79,23 @@ export async function rebuildTripEvents(
   // ------------------------------------------------------------
   const stayDedup = await dedupeStays(admin, trip.id);
 
-  // When a merge happened, events from both copies are still in the
-  // DB; purge the auto-generated ones and let the rebuild pass
-  // recreate them fresh. Manual events never carry the 🔑/🧳 emoji,
-  // so we leave them untouched.
-  if (stayDedup.merged > 0) {
-    await admin
+  // Unconditional purge stay-событий с emoji 🔑/🧳 — их гарантированно
+  // пересоздаст createEventsForStay из актуальных stays rows, с
+  // санитизированным title (sanitizeStayName). Нужно, потому что старый
+  // мусорный title (prose-дамп полей Gemini) имеет другой
+  // normalizeEventTitle, чем новый «Заселение: Проживание», и
+  // upsertEvent не находит match → старая строка остаётся висеть.
+  // Manual события без 🔑/🧳 emoji не трогаем.
+  {
+    const purge = await admin
       .from("events")
       .delete()
       .eq("trip_id", trip.id)
       .eq("kind", "stay")
       .in("emoji", ["🔑", "🧳"]);
+    if (purge.error) {
+      console.warn("[rebuild] stay purge skipped:", purge.error.message);
+    }
   }
 
   // ------------------------------------------------------------
