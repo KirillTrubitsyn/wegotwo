@@ -409,12 +409,7 @@ export default async function DayDetailPage({
               readOnly={isPast}
             />
           </div>
-          <Timeline
-            slug={trip.slug}
-            dayNumber={dayNumber}
-            events={events}
-            readOnly={isPast}
-          />
+          <Timeline events={events} />
         </div>
 
         {/* Prev / Next navigation */}

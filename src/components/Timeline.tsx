@@ -1,6 +1,4 @@
-import { deleteEventAction } from "@/app/trips/[slug]/days/actions";
 import EventDescription from "@/components/EventDescription";
-import EventActionsMenu from "@/components/EventActionsMenu";
 
 export type TimelineLink = {
   label: string;
@@ -89,19 +87,10 @@ const dotIcons: Record<string, string> = {
 };
 
 type Props = {
-  slug: string;
-  dayNumber: number;
   events: TimelineEvent[];
-  /** Disable edit/reorder controls (for archived trips). */
-  readOnly?: boolean;
 };
 
-export default function Timeline({
-  slug,
-  dayNumber,
-  events,
-  readOnly,
-}: Props) {
+export default function Timeline({ events }: Props) {
   if (events.length === 0) {
     return (
       <div className="rounded-card bg-white shadow-card p-6 text-center">
@@ -289,15 +278,6 @@ export default function Timeline({
                 >
                   <span>📞</span> Позвонить
                 </a>
-              )}
-              {!readOnly && (
-                <EventActionsMenu
-                  editHref={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
-                  deletePerform={async () => {
-                    "use server";
-                    await deleteEventAction(slug, dayNumber, event.id);
-                  }}
-                />
               )}
             </div>
           </div>
