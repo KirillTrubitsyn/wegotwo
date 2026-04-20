@@ -62,11 +62,15 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
         return;
       }
 
-      // 2. По очереди прогоняем каждый документ.
+      // 2. Прогоняем документы параллельно, пачками по CONCURRENCY.
+      //    Каждый вызов ~10 сек на Gemini; последовательно было бы
+      //    N*10 сек. Три одновременно = ~N*3.3 сек.
+      const CONCURRENCY = 3;
       let doneN = 0;
       let failed = 0;
       setProgress({ total: ids.length, done: 0, failed: 0 });
-      for (const id of ids) {
+
+      const processOne = async (id: string) => {
         try {
           const r = await fetch(`/api/trips/${slug}/reparse/one`, {
             method: "POST",
@@ -84,6 +88,11 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
         }
         doneN++;
         setProgress({ total: ids.length, done: doneN, failed });
+      };
+
+      for (let i = 0; i < ids.length; i += CONCURRENCY) {
+        const chunk = ids.slice(i, i + CONCURRENCY);
+        await Promise.all(chunk.map(processOne));
       }
 
       // 3. Финальный rebuild, чтобы собранные tour_details попали на события.
