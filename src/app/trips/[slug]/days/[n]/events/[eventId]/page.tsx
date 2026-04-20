@@ -46,6 +46,7 @@ type DocRow = {
   id: string;
   title: string | null;
   storage_path: string;
+  kind: string | null;
 };
 
 export default async function EditEventPage({
@@ -92,28 +93,13 @@ export default async function EditEventPage({
       ? [{ document_id: event.document_id, label: null }]
       : rawAttachments;
 
-  // Fetch document metadata for all attached + available trip docs.
+  // Fetch document metadata for all available trip docs.
   const { data: allDocs } = await admin
     .from("documents")
-    .select("id,title,storage_path")
+    .select("id,title,storage_path,kind")
     .eq("trip_id", trip.id)
     .order("created_at", { ascending: true });
   const docs = (allDocs ?? []) as DocRow[];
-
-  // Signed URLs only for attached documents (for display).
-  const attachedPaths = seeded
-    .map((a) => docs.find((d) => d.id === a.document_id)?.storage_path)
-    .filter((p): p is string => Boolean(p));
-  const signedByPath = new Map<string, string>();
-  if (attachedPaths.length > 0) {
-    const { data: signed } = await admin.storage
-      .from("documents")
-      .createSignedUrls(attachedPaths, 3600);
-    for (let i = 0; i < attachedPaths.length; i++) {
-      const url = (signed ?? [])[i]?.signedUrl;
-      if (url) signedByPath.set(attachedPaths[i], url);
-    }
-  }
 
   const attachmentsForEditor = seeded.map((a) => {
     const doc = docs.find((d) => d.id === a.document_id);
@@ -121,7 +107,6 @@ export default async function EditEventPage({
       document_id: a.document_id,
       label: a.label,
       title: doc?.title ?? null,
-      signed_url: doc ? (signedByPath.get(doc.storage_path) ?? null) : null,
     };
   });
 
@@ -171,7 +156,11 @@ export default async function EditEventPage({
         />
         <EventAttachmentsEditor
           attachments={attachmentsForEditor}
-          availableDocs={docs.map((d) => ({ id: d.id, title: d.title }))}
+          availableDocs={docs.map((d) => ({
+            id: d.id,
+            title: d.title,
+            kind: d.kind,
+          }))}
           addAttachment={addAttachment}
           removeAttachment={removeAttachment}
         />
