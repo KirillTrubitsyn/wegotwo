@@ -32,6 +32,7 @@ import type {
   ExpenseFields,
 } from "@/lib/gemini/schema";
 import { detectStayProvider } from "@/lib/travel/airbnb";
+import { ensureAccommodationExpense } from "@/lib/ingest/stay-expense";
 
 export type RebuildSuccess = {
   ok: true;
@@ -55,18 +56,23 @@ export async function rebuildTripEvents(
 ): Promise<RebuildResult> {
   const { data: tripRow, error: tripErr } = await admin
     .from("trips")
-    .select("id,primary_tz")
+    .select("id,primary_tz,base_currency")
     .eq("slug", slug)
     .maybeSingle();
   if (tripErr) {
     return { ok: false, stage: "trip", error: tripErr.message, status: 500 };
   }
-  const trip = tripRow as { id: string; primary_tz: string } | null;
+  const trip = tripRow as {
+    id: string;
+    primary_tz: string;
+    base_currency: string;
+  } | null;
   if (!trip) {
     return { ok: false, stage: "trip", error: "Trip not found", status: 404 };
   }
 
   const tripCtx = { id: trip.id, primary_tz: trip.primary_tz };
+  const baseCurrency = trip.base_currency || "RUB";
 
   // ------------------------------------------------------------
   // Stay dedup — collapse duplicates before we rebuild events.
@@ -144,7 +150,7 @@ export async function rebuildTripEvents(
     const extended = await admin
       .from("stays")
       .select(
-        "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+        "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
       )
       .eq("trip_id", trip.id);
     if (extended.error) {
@@ -155,7 +161,7 @@ export async function rebuildTripEvents(
       const basic = await admin
         .from("stays")
         .select(
-          "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon"
+          "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon"
         )
         .eq("trip_id", trip.id);
       if (basic.error) {
@@ -237,6 +243,28 @@ export async function rebuildTripEvents(
         error: (e as Error).message,
         status: 500,
       };
+    }
+
+    // Back-fill accommodation expense if missing. Idempotent: dedup
+    // by document_id first, shape-match as fallback.
+    try {
+      await ensureAccommodationExpense(
+        admin,
+        trip.id,
+        baseCurrency,
+        {
+          id: r.id,
+          document_id: (raw.document_id as string | null) ?? null,
+          title: r.title,
+          price: r.price,
+          currency: r.currency,
+          check_in: r.check_in,
+          destination_id: r.destination_id,
+        },
+        null
+      );
+    } catch (e) {
+      console.error("[rebuild] ensureAccommodationExpense:", e);
     }
   }
 
