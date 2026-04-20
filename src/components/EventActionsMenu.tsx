@@ -52,7 +52,7 @@ export default function EventActionsMenu({
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center justify-center w-[32px] h-[28px] rounded-badge border border-black/10 text-text-sec hover:bg-bg-surface"
       >
-        <span className="text-[18px] leading-none">⋯</span>
+        <span className="text-[18px] leading-none" aria-hidden="true">⋮</span>
       </button>
       {open && (
         <div className="absolute right-0 top-[34px] z-20 min-w-[160px] bg-white rounded-card shadow-card border border-black/[0.06] py-1">

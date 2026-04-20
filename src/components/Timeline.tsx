@@ -1,4 +1,4 @@
-import { reorderEventAction, deleteEventAction } from "@/app/trips/[slug]/days/actions";
+import { deleteEventAction } from "@/app/trips/[slug]/days/actions";
 import EventDescription from "@/components/EventDescription";
 import EventActionsMenu from "@/components/EventActionsMenu";
 
@@ -7,6 +7,16 @@ export type TimelineLink = {
   url: string;
   icon?: string | null;
   kind?: string | null;
+};
+
+/**
+ * Вложенные документы события: несколько посадочных талонов на один
+ * рейс, confirmation + summary на одну бронь и т.п. Каждая запись
+ * рендерится как отдельная кнопка «🎫 Билет {label}».
+ */
+export type TimelineAttachment = {
+  url: string;
+  label: string | null;
 };
 
 export type TourExtra = {
@@ -45,8 +55,17 @@ export type TimelineEvent = {
   description: string | null;
   tour_details: TourDetails | null;
   ticket_url: string | null;
-  /** Signed URL на исходный документ (PDF/JPEG) — кнопка «🎫 Файл». */
+  /**
+   * Signed URL на исходный документ — legacy one-to-one связь
+   * event → document. Используется как fallback, если у события
+   * пустой attachments.
+   */
   document_url: string | null;
+  /**
+   * Все документы события. Обычно пуст либо один элемент, но у
+   * рейса с двумя посадочными будет два.
+   */
+  attachments: TimelineAttachment[];
 };
 
 const dotStyles: Record<string, string> = {
@@ -99,10 +118,17 @@ export default function Timeline({
   return (
     <div className="relative pl-7">
       <div className="absolute left-[8px] top-1 bottom-1 w-[1.5px] bg-black/10" />
-      {events.map((event, i) => {
+      {events.map((event) => {
         const timeLabel = formatTimeRange(event.start_time, event.end_time);
-        const isFirst = i === 0;
-        const isLast = i === events.length - 1;
+        const ticketButtons = buildTicketButtons(event);
+        const dueLabel = formatMoney(
+          event.tour_details?.due_amount ?? null,
+          event.tour_details?.due_currency ?? null
+        );
+        // Если есть ticket_url (страница экскурсии) или хотя бы один
+        // билет-аттачмент — кнопка «Сайт» дублирует; прячем её.
+        const hideWebsite = Boolean(event.ticket_url) || ticketButtons.length > 0;
+        const isLast = event === events[events.length - 1];
 
         return (
           <div
@@ -165,11 +191,11 @@ export default function Timeline({
                 {event.notes}
               </div>
             )}
-            {/* Payment summary for tour events: paid / due / extras */}
+            {/* Payment summary for tour events: paid / extras (due вынесен отдельной чипой) */}
             {event.tour_details && <TourPayment details={event.tour_details} />}
             {/* Collapsible long-form description (Tripster-style blurb) */}
             <EventDescription text={event.description} />
-            <div className="flex gap-2 mt-2 flex-wrap">
+            <div className="flex gap-2 mt-2 flex-wrap items-center">
               {event.ticket_url && (
                 <a
                   href={event.ticket_url}
@@ -180,15 +206,25 @@ export default function Timeline({
                   <span>🎟</span> Страница экскурсии
                 </a>
               )}
-              {event.document_url && (
+              {ticketButtons.map((t, i) => (
                 <a
-                  href={event.document_url}
+                  key={`${t.url}-${i}`}
+                  href={t.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface border border-black/10 text-text-main hover:bg-white"
                 >
-                  <span>🎫</span> Билет
+                  <span>🎫</span>{" "}
+                  {t.label ? `Билет ${t.label}` : "Билет"}
                 </a>
+              ))}
+              {dueLabel && (
+                <span
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-semibold bg-accent text-white tnum"
+                  title="Доплата гиду"
+                >
+                  <span>💰</span> {dueLabel}
+                </span>
               )}
               {event.booking_url && (
                 <a
@@ -232,6 +268,7 @@ export default function Timeline({
                 </a>
               )}
               {event.website &&
+                !hideWebsite &&
                 event.website !== event.booking_url &&
                 !event.links?.some((l) => l.url === event.website) && (
                   <a
@@ -252,57 +289,13 @@ export default function Timeline({
                 </a>
               )}
               {!readOnly && (
-                <>
-                  {!isFirst && (
-                    <form
-                      action={async () => {
-                        "use server";
-                        await reorderEventAction(
-                          slug,
-                          dayNumber,
-                          event.id,
-                          "up"
-                        );
-                      }}
-                    >
-                      <button
-                        type="submit"
-                        className="inline-flex items-center gap-[5px] px-[10px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
-                        aria-label="Вверх"
-                      >
-                        ↑
-                      </button>
-                    </form>
-                  )}
-                  {!isLast && (
-                    <form
-                      action={async () => {
-                        "use server";
-                        await reorderEventAction(
-                          slug,
-                          dayNumber,
-                          event.id,
-                          "down"
-                        );
-                      }}
-                    >
-                      <button
-                        type="submit"
-                        className="inline-flex items-center gap-[5px] px-[10px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
-                        aria-label="Вниз"
-                      >
-                        ↓
-                      </button>
-                    </form>
-                  )}
-                  <EventActionsMenu
-                    editHref={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
-                    deletePerform={async () => {
-                      "use server";
-                      await deleteEventAction(slug, dayNumber, event.id);
-                    }}
-                  />
-                </>
+                <EventActionsMenu
+                  editHref={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
+                  deletePerform={async () => {
+                    "use server";
+                    await deleteEventAction(slug, dayNumber, event.id);
+                  }}
+                />
               )}
             </div>
           </div>
@@ -310,6 +303,22 @@ export default function Timeline({
       })}
     </div>
   );
+}
+
+/**
+ * Собирает список кнопок-«билетов» для события. Предпочитаем
+ * attachments (phase 18): у рейса с двумя посадочными там два
+ * элемента. Если массив пуст — падаем на legacy `document_url`
+ * (одна строка, без label).
+ */
+function buildTicketButtons(event: TimelineEvent): TimelineAttachment[] {
+  if (event.attachments && event.attachments.length > 0) {
+    return event.attachments;
+  }
+  if (event.document_url) {
+    return [{ url: event.document_url, label: null }];
+  }
+  return [];
 }
 
 function linkChipClass(kind?: string | null): string {
@@ -347,12 +356,13 @@ function formatMoney(
 
 function TourPayment({ details }: { details: TourDetails }) {
   const paid = formatMoney(details.paid_amount, details.paid_currency);
-  const due = formatMoney(details.due_amount, details.due_currency);
+  // «Доплата гиду» (due) вынесена в инлайновую красную плашку рядом
+  // с кнопкой «Билет» (см. основной рендер выше), здесь её не показываем.
   const extras = (details.extras ?? []).filter(
     (e) => e && e.label && (e.amount != null || e.currency)
   );
   const hasAnything =
-    paid || due || details.guide_name || details.guide_phone || extras.length > 0;
+    paid || details.guide_name || details.guide_phone || extras.length > 0;
   if (!hasAnything) return null;
   return (
     <div className="mt-2 rounded-card bg-bg-surface border border-black/[0.06] p-3 space-y-[6px]">
@@ -380,14 +390,6 @@ function TourPayment({ details }: { details: TourDetails }) {
           <span className="text-text-sec">Предоплачено</span>
           <span className="text-green font-mono font-semibold tnum">
             {paid}
-          </span>
-        </div>
-      )}
-      {due && (
-        <div className="flex items-baseline justify-between gap-2 text-[12px]">
-          <span className="text-text-sec">Доплата гиду</span>
-          <span className="text-accent font-mono font-semibold tnum">
-            {due}
           </span>
         </div>
       )}
