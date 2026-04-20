@@ -30,6 +30,7 @@ import {
 } from "@/lib/ingest/events";
 import { resolveDestinationForDate } from "@/lib/trips/destinations";
 import { detectStayProvider } from "@/lib/travel/airbnb";
+import { ensureAccommodationExpense } from "@/lib/ingest/stay-expense";
 
 export type CommitResult =
   | { ok: true; kind: "flight" | "stay" | "expense"; rowId: string; created: boolean }
@@ -101,13 +102,37 @@ export async function commitParsedDocument(
       const { data: stay } = await admin
         .from("stays")
         .select(
-          "destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+          "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
         )
         .eq("id", res.rowId)
         .maybeSingle();
       const destId =
         (stay as { destination_id: string | null } | null)?.destination_id ??
         null;
+      // Создаём accommodation-расход по цене из документа бронирования
+      // (Airbnb / Booking кладёт полную сумму в PDF; раньше мы её
+      // сохраняли в stays.price, но в Бюджет она не попадала).
+      if (stay) {
+        try {
+          await ensureAccommodationExpense(
+            admin,
+            tripId,
+            baseCurrency,
+            stay as {
+              id: string;
+              document_id: string | null;
+              title: string | null;
+              price: number | string | null;
+              currency: string | null;
+              check_in: string | null;
+              destination_id: string | null;
+            },
+            username
+          );
+        } catch (e) {
+          console.error("[commit] ensureAccommodationExpense:", e);
+        }
+      }
       try {
         const merged = (stay ?? {}) as Record<string, unknown>;
         await createEventsForStay(
