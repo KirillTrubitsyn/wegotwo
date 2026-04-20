@@ -21,6 +21,7 @@ type ParsedShape = {
     amount?: number | null;
     currency?: string | null;
     category?: string | null;
+    items?: { description?: string | null; amount?: number | null }[] | null;
   };
   error?: string;
 };
@@ -163,6 +164,10 @@ export default async function ScanPreviewPage({
               currency_original: defaultCurrency,
             }}
             baseCurrency={trip.base_currency}
+            initialItems={(expense.items ?? []).map((it) => ({
+              description: it?.description ?? null,
+              amount: typeof it?.amount === "number" ? it.amount : null,
+            }))}
           />
         )}
       </div>

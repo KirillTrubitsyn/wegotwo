@@ -160,6 +160,56 @@ export async function createEventsForFlight(
   trip: TripCtx,
   f: FlightFields
 ): Promise<number> {
+  // Если Gemini вернул segments — создаём событие на каждый сегмент
+  // (по дате вылета этого сегмента). Если сегментов нет — падаем на
+  // старый путь и создаём одно событие по top-level полям.
+  const segs = f.segments ?? [];
+  if (segs.length > 0) {
+    let count = 0;
+    for (const seg of segs) {
+      const dep = normalizeDateTime(seg.dep_at, trip.primary_tz);
+      const arr = normalizeDateTime(seg.arr_at, trip.primary_tz);
+      const anchor = dep ?? arr;
+      if (!anchor) continue;
+      const dayId = await findDay(admin, trip.id, anchor.localDate);
+      if (!dayId) continue;
+
+      const code = seg.code ? ` ${seg.code}` : "";
+      const airline = seg.airline ?? f.airline ?? "Рейс";
+      const route =
+        seg.from_city && seg.to_city
+          ? `${seg.from_city} → ${seg.to_city}`
+          : seg.from_code && seg.to_code
+          ? `${seg.from_code} → ${seg.to_code}`
+          : "";
+      const title = `${airline}${code}${route ? `: ${route}` : ""}`.trim();
+      const notes = [
+        f.pnr ? `PNR: ${f.pnr}` : null,
+        seg.seat ? `Место: ${seg.seat}` : null,
+        seg.terminal ? `Терминал: ${seg.terminal}` : null,
+        seg.baggage ? `Багаж: ${seg.baggage}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      const ok = await insertIfNew(admin, {
+        trip_id: trip.id,
+        day_id: dayId,
+        destination_id: null,
+        kind: "flight",
+        start_at: dep?.iso ?? null,
+        end_at: arr?.iso ?? null,
+        title,
+        notes: notes || null,
+        emoji: "✈️",
+        address: null,
+        sort_order: 0,
+      });
+      if (ok) count++;
+    }
+    return count;
+  }
+
   const dep = normalizeDateTime(f.dep_at, trip.primary_tz);
   const arr = normalizeDateTime(f.arr_at, trip.primary_tz);
   const anchor = dep ?? arr;

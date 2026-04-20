@@ -151,23 +151,50 @@ async function commitFlight(
     return { ok: true, kind: "flight", rowId: (existing as { id: string }).id, created: false };
   }
 
+  // Если Gemini вернул массив segments, первый сегмент промоутим в
+  // top-level поля (на случай, если Gemini оставил их пустыми).
+  // Для top-level code конкатенируем все номера рейсов, чтобы в
+  // списке рейсов сразу было видно полный маршрут «JU 137, JU 680».
+  const segs = f.segments ?? [];
+  const first = segs[0] ?? null;
+  const topLevel = {
+    airline: f.airline ?? first?.airline ?? null,
+    code:
+      f.code ??
+      (segs.length > 0
+        ? segs.map((s) => s.code).filter((c): c is string => !!c).join(", ") ||
+          null
+        : null),
+    from_code: f.from_code ?? first?.from_code ?? null,
+    from_city: f.from_city ?? first?.from_city ?? null,
+    to_code: f.to_code ?? segs[segs.length - 1]?.to_code ?? null,
+    to_city: f.to_city ?? segs[segs.length - 1]?.to_city ?? null,
+    dep_at: f.dep_at ?? first?.dep_at ?? null,
+    arr_at: f.arr_at ?? segs[segs.length - 1]?.arr_at ?? null,
+    seat: f.seat ?? first?.seat ?? null,
+    terminal: f.terminal ?? first?.terminal ?? null,
+    baggage: f.baggage ?? first?.baggage ?? null,
+    pnr: f.pnr ?? null,
+  };
+
   const { data, error } = await admin
     .from("flights")
     .insert({
       trip_id: tripId,
       document_id: docId,
-      airline: f.airline,
-      code: f.code,
-      from_code: f.from_code,
-      from_city: f.from_city,
-      to_code: f.to_code,
-      to_city: f.to_city,
-      dep_at: f.dep_at,
-      arr_at: f.arr_at,
-      seat: f.seat,
-      pnr: f.pnr,
-      baggage: f.baggage,
-      terminal: f.terminal,
+      airline: topLevel.airline,
+      code: topLevel.code,
+      from_code: topLevel.from_code,
+      from_city: topLevel.from_city,
+      to_code: topLevel.to_code,
+      to_city: topLevel.to_city,
+      dep_at: topLevel.dep_at,
+      arr_at: topLevel.arr_at,
+      seat: topLevel.seat,
+      pnr: topLevel.pnr,
+      baggage: topLevel.baggage,
+      terminal: topLevel.terminal,
+      segments: segs,
       raw: f,
     })
     .select("id")
@@ -202,6 +229,46 @@ async function commitStay(
       .update({ parsed_status: "parsed" })
       .eq("id", docId);
     return { ok: true, kind: "stay", rowId: (existing as { id: string }).id, created: false };
+  }
+
+  // Дедуп: Airbnb и Booking часто присылают два документа на одно
+  // бронирование (Reservation Details + Trip Summary, приглашение +
+  // подтверждение). Мы склеиваем их в одну строку stays.
+  //
+  // Матчинг по приоритету:
+  //   1) confirmation (точный идентификатор брони)
+  //   2) check_in (дата заезда в поездке уникальна почти всегда)
+  //
+  // Если нашли существующий stay: дозаполняем в нём null-поля из
+  // нового документа, связываем текущий document_id как дополнительный
+  // источник (documents.parsed_fields.merged_into_stay_id), помечаем
+  // второй документ parsed и возвращаем id первого. Таким образом в
+  // UI бюджета и таймлайне остаётся одна строка, а оба документа
+  // видны в /docs и ссылаются на один stay.
+  let duplicate: { id: string } | null = null;
+  if (s.confirmation) {
+    const { data: dup } = await admin
+      .from("stays")
+      .select("id")
+      .eq("trip_id", tripId)
+      .eq("confirmation", s.confirmation)
+      .limit(1)
+      .maybeSingle();
+    duplicate = (dup as { id: string } | null) ?? null;
+  }
+  if (!duplicate && s.check_in) {
+    const { data: dup } = await admin
+      .from("stays")
+      .select("id")
+      .eq("trip_id", tripId)
+      .eq("check_in", s.check_in)
+      .limit(1)
+      .maybeSingle();
+    duplicate = (dup as { id: string } | null) ?? null;
+  }
+
+  if (duplicate) {
+    return await mergeStay(admin, duplicate.id, docId, s);
   }
 
   // Try to link the stay to a destination by matching country/city.
@@ -247,6 +314,93 @@ async function commitStay(
     .eq("id", docId);
 
   return { ok: true, kind: "stay", rowId: (data as { id: string }).id, created: true };
+}
+
+async function mergeStay(
+  admin: SupabaseClient,
+  stayId: string,
+  docId: string,
+  s: StayFields
+): Promise<CommitResult> {
+  // Подтягиваем текущую строку, чтобы дозаполнить null-поля.
+  const { data: current } = await admin
+    .from("stays")
+    .select(
+      "id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,raw"
+    )
+    .eq("id", stayId)
+    .maybeSingle();
+  if (!current) {
+    return { ok: false, error: "Не удалось загрузить stay для merge" };
+  }
+  const cur = current as {
+    title: string | null;
+    address: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    host: string | null;
+    host_phone: string | null;
+    confirmation: string | null;
+    price: number | null;
+    currency: string | null;
+    raw: unknown;
+  };
+
+  const patch: Record<string, unknown> = {};
+  const pick = <K extends keyof typeof cur>(
+    key: K,
+    incoming: (typeof cur)[K] | null | undefined
+  ) => {
+    if ((cur[key] == null || cur[key] === "") && incoming != null && incoming !== "") {
+      patch[key as string] = incoming;
+    }
+  };
+  pick("title", s.title);
+  pick("address", s.address);
+  pick("check_in", s.check_in);
+  pick("check_out", s.check_out);
+  pick("host", s.host);
+  pick("host_phone", s.host_phone);
+  pick("confirmation", s.confirmation);
+  pick("price", s.price);
+  pick("currency", s.currency);
+
+  // В raw кладём оба документа, чтобы не потерять исходные поля.
+  const mergedRaw = {
+    ...(cur.raw && typeof cur.raw === "object" ? (cur.raw as object) : {}),
+    merged_docs: [
+      ...((cur.raw && typeof cur.raw === "object" && "merged_docs" in cur.raw
+        ? ((cur.raw as { merged_docs: unknown[] }).merged_docs ?? [])
+        : []) as unknown[]),
+      s,
+    ],
+  };
+  patch.raw = mergedRaw;
+
+  if (Object.keys(patch).length > 0) {
+    await admin.from("stays").update(patch).eq("id", stayId);
+  }
+
+  // Помечаем документ parsed и пишем в parsed_fields marker,
+  // чтобы в UI было видно, что документ схлопнут в уже существующий stay.
+  const { data: doc } = await admin
+    .from("documents")
+    .select("parsed_fields")
+    .eq("id", docId)
+    .maybeSingle();
+  const pf =
+    (doc as { parsed_fields: Record<string, unknown> | null } | null)
+      ?.parsed_fields ?? {};
+  await admin
+    .from("documents")
+    .update({
+      parsed_status: "parsed",
+      kind: "booking",
+      parsed_fields: { ...pf, merged_into_stay_id: stayId },
+    })
+    .eq("id", docId);
+
+  return { ok: true, kind: "stay", rowId: stayId, created: false };
 }
 
 async function commitExpense(
@@ -330,6 +484,7 @@ async function commitExpense(
       paid_by_username: username,
       created_by_username: username,
       split: "equal",
+      items: e.items ?? [],
     })
     .select("id")
     .single();

@@ -76,7 +76,7 @@ export async function POST(
     const { data: flightRows, error: fErr } = await admin
       .from("flights")
       .select(
-        "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal"
+        "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal,segments"
       )
       .eq("trip_id", trip.id);
     if (fErr) {
@@ -86,7 +86,28 @@ export async function POST(
       );
     }
     let flightEvents = 0;
-    for (const r of (flightRows ?? []) as Array<FlightFields>) {
+    type FlightRow = Omit<FlightFields, "segments"> & {
+      segments: unknown;
+    };
+    for (const raw of (flightRows ?? []) as FlightRow[]) {
+      const segs = Array.isArray(raw.segments)
+        ? (raw.segments as FlightFields["segments"])
+        : [];
+      const r: FlightFields = {
+        airline: raw.airline,
+        code: raw.code,
+        from_code: raw.from_code,
+        from_city: raw.from_city,
+        to_code: raw.to_code,
+        to_city: raw.to_city,
+        dep_at: raw.dep_at,
+        arr_at: raw.arr_at,
+        seat: raw.seat,
+        pnr: raw.pnr,
+        baggage: raw.baggage,
+        terminal: raw.terminal,
+        segments: segs,
+      };
       try {
         flightEvents += await createEventsForFlight(admin, tripCtx, r);
       } catch (e) {
@@ -184,6 +205,7 @@ export async function POST(
             : r.amount_original,
         currency: r.currency_original,
         category: r.category as ExpenseFields["category"],
+        items: [],
       };
       try {
         expenseEvents += await createEventsForExpense(admin, tripCtx, fields);

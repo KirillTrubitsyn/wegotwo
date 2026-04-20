@@ -71,6 +71,26 @@ const OptCurrency = z
     return /^[A-Z]{3}$/.test(t) ? t : null;
   });
 
+// Single leg of a flight itinerary. Electronic tickets often contain
+// 2–4 legs (SVO → BEG → TIV → BEG → SVO). We model each leg as a
+// discrete segment with its own times/seat/terminal; the Gemini
+// parser is instructed to preserve the order of legs as they appear
+// on the document. `code` is the carrier flight number for that leg.
+export const FlightSegment = z.object({
+  airline: OptStr,
+  code: OptStr,
+  from_code: OptStr,
+  from_city: OptStr,
+  to_code: OptStr,
+  to_city: OptStr,
+  dep_at: OptIsoDateTime,
+  arr_at: OptIsoDateTime,
+  seat: OptStr,
+  terminal: OptStr,
+  baggage: OptStr,
+});
+export type FlightSegment = z.infer<typeof FlightSegment>;
+
 export const FlightFields = z.object({
   airline: OptStr,
   code: OptStr, // JU331, U24633
@@ -84,6 +104,13 @@ export const FlightFields = z.object({
   pnr: OptStr,
   baggage: OptStr,
   terminal: OptStr,
+  // Multi-leg itineraries: array in boarding order. Single-leg
+  // tickets may omit this (in which case the top-level fields ARE
+  // the only segment).
+  segments: z
+    .union([z.array(FlightSegment), z.null()])
+    .optional()
+    .transform((v) => (v == null ? [] : v)),
 });
 export type FlightFields = z.infer<typeof FlightFields>;
 
@@ -118,6 +145,15 @@ const EXPENSE_CATEGORIES = [
   "other",
 ] as const;
 
+// Позиция ресторанного чека. Gemini инструктирован вернуть каждую
+// строку счёта с её собственной суммой. Назначение (кто ел) пользователь
+// проставит в UI; в parsed_fields мы `share` не сохраняем.
+export const ExpenseItem = z.object({
+  description: OptStr,
+  amount: OptNum,
+});
+export type ExpenseItem = z.infer<typeof ExpenseItem>;
+
 export const ExpenseFields = z.object({
   merchant: OptStr,
   description: OptStr,
@@ -134,6 +170,11 @@ export const ExpenseFields = z.object({
         ? (cat as (typeof EXPENSE_CATEGORIES)[number])
         : null;
     }),
+  // Позиции ресторанного чека. Пусто для нересторанных расходов.
+  items: z
+    .union([z.array(ExpenseItem), z.null()])
+    .optional()
+    .transform((v) => (v == null ? [] : v)),
 });
 export type ExpenseFields = z.infer<typeof ExpenseFields>;
 
@@ -202,6 +243,26 @@ export const GEMINI_RESPONSE_SCHEMA = {
         pnr: { type: "STRING", nullable: true },
         baggage: { type: "STRING", nullable: true },
         terminal: { type: "STRING", nullable: true },
+        segments: {
+          type: "ARRAY",
+          nullable: true,
+          items: {
+            type: "OBJECT",
+            properties: {
+              airline: { type: "STRING", nullable: true },
+              code: { type: "STRING", nullable: true },
+              from_code: { type: "STRING", nullable: true },
+              from_city: { type: "STRING", nullable: true },
+              to_code: { type: "STRING", nullable: true },
+              to_city: { type: "STRING", nullable: true },
+              dep_at: { type: "STRING", nullable: true },
+              arr_at: { type: "STRING", nullable: true },
+              seat: { type: "STRING", nullable: true },
+              terminal: { type: "STRING", nullable: true },
+              baggage: { type: "STRING", nullable: true },
+            },
+          },
+        },
       },
     },
     stay: {
@@ -230,6 +291,17 @@ export const GEMINI_RESPONSE_SCHEMA = {
         amount: { type: "NUMBER", nullable: true },
         currency: { type: "STRING", nullable: true },
         category: { type: "STRING", nullable: true },
+        items: {
+          type: "ARRAY",
+          nullable: true,
+          items: {
+            type: "OBJECT",
+            properties: {
+              description: { type: "STRING", nullable: true },
+              amount: { type: "NUMBER", nullable: true },
+            },
+          },
+        },
       },
     },
   },

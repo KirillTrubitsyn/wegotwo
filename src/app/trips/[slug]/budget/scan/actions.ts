@@ -43,6 +43,7 @@ import {
   type ParsedDocument as ParsedDocumentT,
 } from "@/lib/gemini/schema";
 import { commitParsedDocument } from "@/lib/ingest/commit";
+import type { ExpenseItem } from "@/lib/gemini/schema";
 
 const ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -327,6 +328,53 @@ export async function commitScanAction(
   const merchant = parsed.data.merchant || null;
   const description = parsed.data.description || null;
 
+  // Собираем позиции чека и сплит «Кирилл / общее / Марина» из формы.
+  // Клиент отправляет параллельные массивы items_description[],
+  // items_amount[] и items_share[] (значение share ∈ {k, common, m}).
+  // Сплит считаем в исходной валюте чека; в базу пишем в
+  // expenses.items (массив) и expenses.split_summary (агрегаты).
+  const itemDescs = fd.getAll("items_description").map((v) => String(v ?? ""));
+  const itemAmts = fd.getAll("items_amount").map((v) => String(v ?? ""));
+  const itemShares = fd.getAll("items_share").map((v) => String(v ?? "common"));
+  const items: (ExpenseItem & { share: "k" | "common" | "m" })[] = [];
+  for (let i = 0; i < itemDescs.length; i++) {
+    const desc = itemDescs[i].trim();
+    const amtRaw = itemAmts[i]?.trim() ?? "";
+    const shareRaw = itemShares[i]?.trim().toLowerCase() ?? "common";
+    const share: "k" | "common" | "m" =
+      shareRaw === "k" || shareRaw === "m" ? shareRaw : "common";
+    const amt = amtRaw ? Number(amtRaw.replace(",", ".")) : null;
+    if (!desc && (amt == null || !Number.isFinite(amt))) continue;
+    items.push({
+      description: desc || null,
+      amount: amt != null && Number.isFinite(amt) ? amt : null,
+      share,
+    });
+  }
+
+  // split_summary: kirill / common / marina — сумма позиций в своей
+  // группе плюс общая часть делится пополам. Считаем в исходной валюте.
+  let splitSummary:
+    | { kirill: number; marina: number; common: number; currency: string }
+    | null = null;
+  if (items.length > 0) {
+    let k = 0;
+    let m = 0;
+    let c = 0;
+    for (const it of items) {
+      if (it.amount == null) continue;
+      if (it.share === "k") k += it.amount;
+      else if (it.share === "m") m += it.amount;
+      else c += it.amount;
+    }
+    splitSummary = {
+      kirill: Math.round((k + c / 2) * 100) / 100,
+      marina: Math.round((m + c / 2) * 100) / 100,
+      common: Math.round(c * 100) / 100,
+      currency: parsed.data.currency_original,
+    };
+  }
+
   const nextFields: ParsedDocumentT = {
     type: "expense",
     summary:
@@ -341,6 +389,10 @@ export async function commitScanAction(
       amount,
       currency: parsed.data.currency_original,
       category: parsed.data.category,
+      items: items.map((it) => ({
+        description: it.description,
+        amount: it.amount,
+      })),
     },
   };
 
@@ -363,6 +415,16 @@ export async function commitScanAction(
     username,
   });
   if (!res.ok) return { ok: false, form: res.error };
+
+  // split_summary живёт отдельно от parsed_fields: сам разбор делал
+  // пользователь в форме, а не Gemini, поэтому мы пишем его напрямую
+  // в expenses.split_summary после того, как commit создал row.
+  if (res.kind === "expense" && splitSummary) {
+    await admin
+      .from("expenses")
+      .update({ split_summary: splitSummary })
+      .eq("id", res.rowId);
+  }
 
   revalidatePath(`/trips/${slug}/budget`);
   revalidatePath(`/trips/${slug}/docs`);
