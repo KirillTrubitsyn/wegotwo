@@ -359,3 +359,63 @@ export async function setCoverPhotoAction(
   revalidatePath(`/trips/${slug}/photos`);
   if (photoId) revalidatePath(`/trips/${slug}/photos/${photoId}`);
 }
+
+/**
+ * Назначить (или снять) фото обложкой конкретного события таймлайна.
+ *
+ * Toggle-семантика: если у события сейчас стоит эта фотография —
+ * убираем (photo_path = null). Иначе — ставим storage_path этой
+ * фотки в `events.photo_path`, перетирая предыдущую обложку
+ * события (у каждого события может быть только одна обложка).
+ *
+ * Вызывается из client-компонента `EventCoverPicker` на странице
+ * деталей фото. Позволяет менять обложку события прямо из UI,
+ * без SQL.
+ */
+export async function toggleEventCoverAction(
+  slug: string,
+  photoId: string,
+  eventId: string
+): Promise<{ ok: true; linked: boolean } | { ok: false; error: string }> {
+  const username = await getCurrentUsername();
+  if (!username) return { ok: false, error: "Требуется вход" };
+  const admin = createAdminClient();
+
+  const { data: tripRow } = await admin
+    .from("trips")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  const trip = tripRow as { id: string } | null;
+  if (!trip) return { ok: false, error: "Поездка не найдена" };
+
+  const { data: photoRow } = await admin
+    .from("photos")
+    .select("storage_path")
+    .eq("id", photoId)
+    .eq("trip_id", trip.id)
+    .maybeSingle();
+  const photo = photoRow as { storage_path: string } | null;
+  if (!photo) return { ok: false, error: "Фото не найдено" };
+
+  const { data: eventRow } = await admin
+    .from("events")
+    .select("id,photo_path")
+    .eq("id", eventId)
+    .eq("trip_id", trip.id)
+    .maybeSingle();
+  const event = eventRow as { id: string; photo_path: string | null } | null;
+  if (!event) return { ok: false, error: "Событие не найдено" };
+
+  const isCurrently = event.photo_path === photo.storage_path;
+  const nextPath = isCurrently ? null : photo.storage_path;
+  const { error } = await admin
+    .from("events")
+    .update({ photo_path: nextPath })
+    .eq("id", eventId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/trips/${slug}/photos/${photoId}`);
+  revalidatePath(`/trips/${slug}/days`);
+  return { ok: true, linked: !isCurrently };
+}

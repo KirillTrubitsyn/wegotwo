@@ -4,6 +4,9 @@ import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import OfflineBanner from "@/components/OfflineBanner";
 import PhotoEditForm from "./PhotoEditForm";
+import EventCoverPicker, {
+  type EventCoverOption,
+} from "./EventCoverPicker";
 import {
   updatePhotoAction,
   deletePhotoAction,
@@ -70,6 +73,41 @@ export default async function PhotoDetailPage({
     .eq("trip_id", trip.id)
     .order("date", { ascending: true });
   const days = (dayData ?? []) as DayRow[];
+
+  // События поездки + текущая обложка (для пикера).
+  const { data: eventData } = await admin
+    .from("events")
+    .select("id,title,kind,emoji,photo_path,day_id,start_at,sort_order")
+    .eq("trip_id", trip.id)
+    .order("start_at", { ascending: true, nullsFirst: false })
+    .order("sort_order", { ascending: true });
+  const dayById = new Map(days.map((d) => [d.id, d.date]));
+  const eventOptions: EventCoverOption[] = (
+    (eventData ?? []) as Array<{
+      id: string;
+      title: string;
+      kind: string;
+      emoji: string | null;
+      photo_path: string | null;
+      day_id: string | null;
+    }>
+  ).map((e) => {
+    const date = e.day_id ? dayById.get(e.day_id) ?? null : null;
+    const dayLabel = date
+      ? format(parseISO(date), "EEE, d MMMM", { locale: ru })
+      : null;
+    return {
+      id: e.id,
+      title: e.title,
+      kind: e.kind,
+      emoji: e.emoji,
+      dayLabel,
+      isCurrent:
+        photoData != null &&
+        e.photo_path != null &&
+        e.photo_path === (photoData as { storage_path: string }).storage_path,
+    };
+  });
 
   const { data: signed } = await admin.storage
     .from(PHOTOS_BUCKET)
@@ -165,6 +203,23 @@ export default async function PhotoDetailPage({
             {isCover ? "Убрать с обложки" : "Сделать обложкой поездки"}
           </button>
         </form>
+
+        <section className="bg-white rounded-card shadow-card p-5 space-y-3">
+          <div>
+            <h2 className="text-[14px] font-semibold text-text-main">
+              Обложка события
+            </h2>
+            <p className="text-[12px] text-text-sec mt-[2px] leading-[1.4]">
+              Выбери событие таймлайна — фото станет его обложкой.
+              Нажми ещё раз, чтобы убрать.
+            </p>
+          </div>
+          <EventCoverPicker
+            slug={slug}
+            photoId={photoId}
+            events={eventOptions}
+          />
+        </section>
 
         <form
           action={async () => {
