@@ -59,6 +59,7 @@ type EventRow = {
   description: string | null;
   tour_details: TourDetails | null;
   ticket_url: string | null;
+  document_id: string | null;
 };
 
 export default async function DayDetailPage({
@@ -114,7 +115,7 @@ export default async function DayDetailPage({
     const full = await admin
       .from("events")
       .select(
-        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links,description,tour_details,ticket_url"
+        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links,description,tour_details,ticket_url,document_id"
       )
       .eq("day_id", day.id)
       .order("start_at", { ascending: true, nullsFirst: false })
@@ -137,12 +138,13 @@ export default async function DayDetailPage({
       if (!phase14.error) {
         rawEvents = ((phase14.data ?? []) as Omit<
           EventRow,
-          "description" | "tour_details" | "ticket_url"
+          "description" | "tour_details" | "ticket_url" | "document_id"
         >[]).map((e) => ({
           ...e,
           description: null,
           tour_details: null,
           ticket_url: null,
+          document_id: null,
         }));
       } else {
         const basic = await admin
@@ -161,6 +163,7 @@ export default async function DayDetailPage({
           | "description"
           | "tour_details"
           | "ticket_url"
+          | "document_id"
         >[]).map((e) => ({
           ...e,
           booking_url: null,
@@ -169,6 +172,7 @@ export default async function DayDetailPage({
           description: null,
           tour_details: null,
           ticket_url: null,
+          document_id: null,
         }));
       }
     }
@@ -192,6 +196,47 @@ export default async function DayDetailPage({
     );
   }
 
+  // Подтягиваем сторадж-пути документов, связанных с событиями, и
+  // генерим signed URL на каждый — чтобы в Timeline была кнопка
+  // «🎫 Билет», открывающая исходный файл (Tripster PDF, посадочный).
+  const docIds = Array.from(
+    new Set(
+      rawEvents
+        .map((e) => e.document_id)
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+    )
+  );
+  const ticketUrlByDoc = new Map<string, string>();
+  if (docIds.length > 0) {
+    const { data: docRows } = await admin
+      .from("documents")
+      .select("id,storage_path")
+      .in("id", docIds);
+    const paths = ((docRows ?? []) as Array<{
+      id: string;
+      storage_path: string;
+    }>).map((d) => d.storage_path);
+    if (paths.length > 0) {
+      const { data: signed } = await admin.storage
+        .from("documents")
+        .createSignedUrls(paths, 3600);
+      const signedByPath = new Map(
+        (signed ?? [])
+          .map((s, i) => [paths[i], s.signedUrl] as const)
+          .filter((pair): pair is readonly [string, string] =>
+            typeof pair[1] === "string" && pair[1].length > 0
+          )
+      );
+      for (const d of (docRows ?? []) as Array<{
+        id: string;
+        storage_path: string;
+      }>) {
+        const u = signedByPath.get(d.storage_path);
+        if (u) ticketUrlByDoc.set(d.id, u);
+      }
+    }
+  }
+
   const events: TimelineEvent[] = rawEvents.map((e) => ({
     id: e.id,
     title: e.title,
@@ -212,6 +257,9 @@ export default async function DayDetailPage({
     description: e.description,
     tour_details: e.tour_details ?? null,
     ticket_url: e.ticket_url,
+    document_url: e.document_id
+      ? ticketUrlByDoc.get(e.document_id) ?? null
+      : null,
   }));
 
   const today = new Date().toISOString().slice(0, 10);

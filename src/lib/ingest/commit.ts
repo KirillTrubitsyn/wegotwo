@@ -86,7 +86,7 @@ export async function commitParsedDocument(
     const res = await commitFlight(admin, tripId, docId, pd.flight);
     if (res.ok) {
       try {
-        await createEventsForFlight(admin, tripCtx, pd.flight);
+        await createEventsForFlight(admin, tripCtx, pd.flight, docId);
       } catch (e) {
         console.error("[commit] createEventsForFlight:", e);
       }
@@ -161,7 +161,8 @@ export async function commitParsedDocument(
             booking_url: (merged.booking_url as string | null) ?? null,
             map_url: (merged.map_url as string | null) ?? null,
           },
-          destId
+          destId,
+          docId
         );
       } catch (e) {
         console.error("[commit] createEventsForStay:", e);
@@ -180,7 +181,7 @@ export async function commitParsedDocument(
     );
     if (res.ok) {
       try {
-        await createEventsForExpense(admin, tripCtx, pd.expense);
+        await createEventsForExpense(admin, tripCtx, pd.expense, docId);
       } catch (e) {
         console.error("[commit] createEventsForExpense:", e);
       }

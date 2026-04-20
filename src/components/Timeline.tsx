@@ -45,6 +45,8 @@ export type TimelineEvent = {
   description: string | null;
   tour_details: TourDetails | null;
   ticket_url: string | null;
+  /** Signed URL на исходный документ (PDF/JPEG) — кнопка «🎫 Файл». */
+  document_url: string | null;
 };
 
 const dotStyles: Record<string, string> = {
@@ -176,6 +178,16 @@ export default function Timeline({
                   className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-gold-lt border border-gold/30 text-[#8a6200] hover:bg-gold/25"
                 >
                   <span>🎟</span> Страница экскурсии
+                </a>
+              )}
+              {event.document_url && (
+                <a
+                  href={event.document_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface border border-black/10 text-text-main hover:bg-white"
+                >
+                  <span>🎫</span> Билет
                 </a>
               )}
               {event.booking_url && (

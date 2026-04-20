@@ -170,6 +170,7 @@ type EventRow = {
   description?: string | null;
   tour_details?: TourDetailsRow | null;
   ticket_url?: string | null;
+  document_id?: string | null;
 };
 
 /**
@@ -219,6 +220,7 @@ async function upsertEvent(
     if (row.tour_details != null) patch.tour_details = row.tour_details;
     if (row.description != null && row.description !== "")
       patch.description = row.description;
+    if (row.document_id != null) patch.document_id = row.document_id;
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
@@ -251,6 +253,8 @@ const EXTENDED_COLUMNS = [
   "description",
   "tour_details",
   "ticket_url",
+  // phase17
+  "document_id",
 ] as const;
 
 async function insertEventCompat(
@@ -354,7 +358,8 @@ function buildFlightLinks(
 export async function createEventsForFlight(
   admin: SupabaseClient,
   trip: TripCtx,
-  f: FlightFields
+  f: FlightFields,
+  documentId: string | null = null
 ): Promise<number> {
   const affected: string[] = [];
   // Если Gemini вернул segments — создаём событие на каждый сегмент
@@ -413,6 +418,7 @@ export async function createEventsForFlight(
         booking_url: null,
         map_embed_url: null,
         links: extras.links,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -466,6 +472,7 @@ export async function createEventsForFlight(
     booking_url: null,
     map_embed_url: null,
     links: extras.links,
+    document_id: documentId,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
@@ -514,7 +521,8 @@ export async function createEventsForStay(
     booking_url?: string | null;
     map_url?: string | null;
   },
-  destinationId: string | null
+  destinationId: string | null,
+  documentId: string | null = null
 ): Promise<number> {
   let count = 0;
   const checkIn = normalizeDateTime(s.check_in, trip.primary_tz);
@@ -583,6 +591,7 @@ export async function createEventsForStay(
         booking_url: bookingUrl,
         map_embed_url: mapEmbed,
         links: baseLinks,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -617,6 +626,7 @@ export async function createEventsForStay(
         booking_url: bookingUrl,
         map_embed_url: null,
         links: baseLinks,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -665,7 +675,8 @@ function combineDateTimeIso(
 export async function createEventsForExpense(
   admin: SupabaseClient,
   trip: TripCtx,
-  e: ExpenseFields
+  e: ExpenseFields,
+  documentId: string | null = null
 ): Promise<number> {
   if (!e.occurred_on || !e.category) return 0;
   const kindInfo = ACTIVITY_CATEGORIES[e.category];
@@ -740,6 +751,7 @@ export async function createEventsForExpense(
     links: [],
     ticket_url: ticketUrl,
     tour_details: hasAnyTourField ? tourDetails : null,
+    document_id: documentId,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;

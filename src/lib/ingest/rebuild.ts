@@ -96,7 +96,7 @@ export async function rebuildTripEvents(
   const { data: flightRows, error: fErr } = await admin
     .from("flights")
     .select(
-      "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal,segments"
+      "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal,segments,document_id"
     )
     .eq("trip_id", trip.id);
   if (fErr) {
@@ -108,7 +108,10 @@ export async function rebuildTripEvents(
     };
   }
   let flightEvents = 0;
-  type FlightRow = Omit<FlightFields, "segments"> & { segments: unknown };
+  type FlightRow = Omit<FlightFields, "segments"> & {
+    segments: unknown;
+    document_id: string | null;
+  };
   for (const raw of (flightRows ?? []) as FlightRow[]) {
     const segs = Array.isArray(raw.segments)
       ? (raw.segments as FlightFields["segments"])
@@ -129,7 +132,12 @@ export async function rebuildTripEvents(
       segments: segs,
     };
     try {
-      flightEvents += await createEventsForFlight(admin, tripCtx, r);
+      flightEvents += await createEventsForFlight(
+        admin,
+        tripCtx,
+        r,
+        raw.document_id
+      );
     } catch (e) {
       return {
         ok: false,
@@ -238,7 +246,8 @@ export async function rebuildTripEvents(
         admin,
         tripCtx,
         fields,
-        r.destination_id
+        r.destination_id,
+        (raw.document_id as string | null) ?? null
       );
     } catch (e) {
       return {
@@ -359,7 +368,12 @@ export async function rebuildTripEvents(
       extras: tourFields.extras ?? [],
     };
     try {
-      expenseEvents += await createEventsForExpense(admin, tripCtx, fields);
+      expenseEvents += await createEventsForExpense(
+        admin,
+        tripCtx,
+        fields,
+        r.document_id
+      );
     } catch (ex) {
       return {
         ok: false,
