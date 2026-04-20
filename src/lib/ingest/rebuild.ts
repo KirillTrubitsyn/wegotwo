@@ -105,6 +105,23 @@ export async function rebuildTripEvents(
     console.error("[rebuild] dedupeEventsByTitle:", e);
   }
 
+  // Агрессивный purge ingest-генерированных flight-событий. Их всегда
+  // пересоздаёт иerator ниже из `flights` таблицы. Manual-события
+  // (созданные пользователем через UI) не имеют emoji '✈️', поэтому
+  // удаление безопасно. Это гарантирует, что после рефакторинга
+  // upsertEvent случайно оставшиеся дубли схлопнутся.
+  {
+    const purge = await admin
+      .from("events")
+      .delete()
+      .eq("trip_id", trip.id)
+      .eq("kind", "flight")
+      .eq("emoji", "✈️");
+    if (purge.error) {
+      console.warn("[rebuild] flight purge skipped:", purge.error.message);
+    }
+  }
+
   // Flights
   const { data: flightRows, error: fErr } = await admin
     .from("flights")
