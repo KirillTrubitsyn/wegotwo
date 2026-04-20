@@ -170,6 +170,7 @@ type EventRow = {
   description?: string | null;
   tour_details?: TourDetailsRow | null;
   ticket_url?: string | null;
+  document_id?: string | null;
 };
 
 /**
@@ -198,28 +199,31 @@ async function upsertEvent(
     // Patch only "enrichment" fields — we never overwrite a user's
     // manual edit of title / notes from the UI (the UI updates
     // through updateEventAction which goes through actions.ts).
+    //
+    // Политика перезаписи: поля, которые юзер может отредактировать
+    // вручную (map_url, website, ticket_url, tour_details,
+    // description), мы обновляем ТОЛЬКО если ingest принёс
+    // non-null. Null/пустое значение означает «мы не знаем», а не
+    // «сбросить». Иначе rebuild после ручного SQL-апдейта стирает
+    // пользовательские значения.
     const patch: Record<string, unknown> = {
-      map_url: row.map_url,
-      website: row.website,
-      phone: row.phone,
       booking_url: row.booking_url,
       map_embed_url: row.map_embed_url,
       links: row.links,
       address: row.address,
       emoji: row.emoji,
+      phone: row.phone,
     };
+    if (row.map_url != null) patch.map_url = row.map_url;
+    if (row.website != null) patch.website = row.website;
+    if (row.ticket_url != null) patch.ticket_url = row.ticket_url;
+    if (row.tour_details != null) patch.tour_details = row.tour_details;
+    if (row.description != null && row.description !== "")
+      patch.description = row.description;
+    if (row.document_id != null) patch.document_id = row.document_id;
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
-    // Phase 16 tour fields: only PATCH the structured tour_details /
-    // ticket_url; we never overwrite a non-empty `description` with
-    // an empty one, because the long-form description is usually
-    // filled by the user manually (scraped from Tripster) and the
-    // ingest layer won't know how to regenerate it.
-    if (row.ticket_url !== undefined) patch.ticket_url = row.ticket_url;
-    if (row.tour_details !== undefined) patch.tour_details = row.tour_details;
-    if (row.description != null && row.description !== "")
-      patch.description = row.description;
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);
@@ -249,6 +253,8 @@ const EXTENDED_COLUMNS = [
   "description",
   "tour_details",
   "ticket_url",
+  // phase17
+  "document_id",
 ] as const;
 
 async function insertEventCompat(
@@ -352,7 +358,8 @@ function buildFlightLinks(
 export async function createEventsForFlight(
   admin: SupabaseClient,
   trip: TripCtx,
-  f: FlightFields
+  f: FlightFields,
+  documentId: string | null = null
 ): Promise<number> {
   const affected: string[] = [];
   // Если Gemini вернул segments — создаём событие на каждый сегмент
@@ -411,6 +418,7 @@ export async function createEventsForFlight(
         booking_url: null,
         map_embed_url: null,
         links: extras.links,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -464,6 +472,7 @@ export async function createEventsForFlight(
     booking_url: null,
     map_embed_url: null,
     links: extras.links,
+    document_id: documentId,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
@@ -512,7 +521,8 @@ export async function createEventsForStay(
     booking_url?: string | null;
     map_url?: string | null;
   },
-  destinationId: string | null
+  destinationId: string | null,
+  documentId: string | null = null
 ): Promise<number> {
   let count = 0;
   const checkIn = normalizeDateTime(s.check_in, trip.primary_tz);
@@ -581,6 +591,7 @@ export async function createEventsForStay(
         booking_url: bookingUrl,
         map_embed_url: mapEmbed,
         links: baseLinks,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -615,6 +626,7 @@ export async function createEventsForStay(
         booking_url: bookingUrl,
         map_embed_url: null,
         links: baseLinks,
+        document_id: documentId,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -663,7 +675,8 @@ function combineDateTimeIso(
 export async function createEventsForExpense(
   admin: SupabaseClient,
   trip: TripCtx,
-  e: ExpenseFields
+  e: ExpenseFields,
+  documentId: string | null = null
 ): Promise<number> {
   if (!e.occurred_on || !e.category) return 0;
   const kindInfo = ACTIVITY_CATEGORIES[e.category];
@@ -738,6 +751,7 @@ export async function createEventsForExpense(
     links: [],
     ticket_url: ticketUrl,
     tour_details: hasAnyTourField ? tourDetails : null,
+    document_id: documentId,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;

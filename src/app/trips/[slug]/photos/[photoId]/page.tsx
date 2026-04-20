@@ -14,6 +14,7 @@ import {
   type PhotoActionState,
 } from "../actions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -221,20 +222,16 @@ export default async function PhotoDetailPage({
           />
         </section>
 
-        <form
-          action={async () => {
+        <ConfirmDeleteButton
+          perform={async () => {
             "use server";
             await deletePhotoAction(slug, photoId);
             redirect(`/trips/${slug}/photos`);
           }}
-        >
-          <button
-            type="submit"
-            className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
-          >
-            Удалить фото
-          </button>
-        </form>
+          label="Удалить фото"
+          confirmText="Фото будет удалено без возможности восстановить. Введите код доступа."
+          className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
+        />
       </div>
     </>
   );

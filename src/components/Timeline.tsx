@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { reorderEventAction, deleteEventAction } from "@/app/trips/[slug]/days/actions";
 import EventDescription from "@/components/EventDescription";
+import EventActionsMenu from "@/components/EventActionsMenu";
 
 export type TimelineLink = {
   label: string;
@@ -45,6 +45,8 @@ export type TimelineEvent = {
   description: string | null;
   tour_details: TourDetails | null;
   ticket_url: string | null;
+  /** Signed URL на исходный документ (PDF/JPEG) — кнопка «🎫 Файл». */
+  document_url: string | null;
 };
 
 const dotStyles: Record<string, string> = {
@@ -178,6 +180,16 @@ export default function Timeline({
                   <span>🎟</span> Страница экскурсии
                 </a>
               )}
+              {event.document_url && (
+                <a
+                  href={event.document_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface border border-black/10 text-text-main hover:bg-white"
+                >
+                  <span>🎫</span> Билет
+                </a>
+              )}
               {event.booking_url && (
                 <a
                   href={event.booking_url}
@@ -241,12 +253,6 @@ export default function Timeline({
               )}
               {!readOnly && (
                 <>
-                  <Link
-                    href={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
-                    className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
-                  >
-                    Изменить
-                  </Link>
                   {!isFirst && (
                     <form
                       action={async () => {
@@ -289,19 +295,13 @@ export default function Timeline({
                       </button>
                     </form>
                   )}
-                  <form
-                    action={async () => {
+                  <EventActionsMenu
+                    editHref={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
+                    deletePerform={async () => {
                       "use server";
                       await deleteEventAction(slug, dayNumber, event.id);
                     }}
-                  >
-                    <button
-                      type="submit"
-                      className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-accent/20 text-accent hover:bg-red-lt"
-                    >
-                      Удалить
-                    </button>
-                  </form>
+                  />
                 </>
               )}
             </div>

@@ -13,6 +13,7 @@ import PdfPreview from "../PdfPreview";
 import IngestPanel from "./IngestPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signedDocUrl, signedDocDownloadUrl } from "@/lib/docs/storage";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 import { extForMime } from "@/lib/docs/labels";
 import {
   DOC_KIND_LABELS,
@@ -257,20 +258,16 @@ export default async function DocDetailPage({
         </section>
 
         {/* Delete */}
-        <form
-          action={async () => {
+        <ConfirmDeleteButton
+          perform={async () => {
             "use server";
             await deleteDocumentAction(slug, docId);
             redirect(`/trips/${slug}/docs`);
           }}
-        >
-          <button
-            type="submit"
-            className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
-          >
-            Удалить документ
-          </button>
-        </form>
+          label="Удалить документ"
+          confirmText="Документ и связанная с ним запись (рейс / бронь / расход) будут удалены. Введите код доступа."
+          className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
+        />
       </div>
     </>
   );

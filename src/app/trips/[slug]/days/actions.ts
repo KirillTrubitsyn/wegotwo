@@ -5,6 +5,9 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUsername } from "@/lib/auth/current-user";
 import { rebuildTripEvents } from "@/lib/ingest/rebuild";
+import { DOCS_BUCKET } from "@/lib/docs/storage";
+import { parseDocument, type TripContext } from "@/lib/gemini/client";
+import { commitParsedDocument } from "@/lib/ingest/commit";
 
 const EVENT_KINDS = [
   "meal",
@@ -314,7 +317,6 @@ export async function reorderEventAction(
 const dayMetaSchema = z.object({
   title: z.string().trim().max(120).optional().or(z.literal("")),
   detail: z.string().trim().max(400).optional().or(z.literal("")),
-  badge: z.string().trim().max(24).optional().or(z.literal("")),
 });
 
 export async function updateDayMetaAction(
@@ -330,17 +332,17 @@ export async function updateDayMetaAction(
   const parsed = dayMetaSchema.safeParse({
     title: String(formData.get("title") ?? ""),
     detail: String(formData.get("detail") ?? ""),
-    badge: String(formData.get("badge") ?? ""),
   });
   if (!parsed.success) return;
 
+  // `badge` убрали из формы — не перезаписываем его, чтобы система
+  // могла сохранить «Прилёт / Выезд», проставленные на ингесте.
   const admin = createAdminClient();
   await admin
     .from("days")
     .update({
       title: parsed.data.title || null,
       detail: parsed.data.detail || null,
-      badge: parsed.data.badge || null,
     })
     .eq("id", ctx.day.id);
 
@@ -369,4 +371,127 @@ export async function rebuildTimelineAction(slug: string) {
   }
   revalidatePath(`/trips/${slug}`);
   revalidatePath(`/trips/${slug}/days`);
+}
+
+/**
+ * Прогнать Gemini заново по всем документам поездки: перечитать
+ * PDF/картинку с текущим system-prompt, обновить parsed_fields и
+ * закоммитить изменения. Нужно, когда схема расширена (phase16:
+ * guide_name, paid/due, start/end_time) и для старых документов
+ * parsed_fields устарели.
+ *
+ * В конце — rebuildTripEvents, чтобы события таймлайна обновились
+ * свежими tour_details / start_at / ticket_url.
+ *
+ * Дорогое (N × Gemini). Вызывается по отдельной кнопке с
+ * осознанным подтверждением пользователя.
+ */
+export async function reparseDocumentsAction(
+  slug: string
+): Promise<{ ok: true; reparsed: number; failed: number } | { ok: false; error: string }> {
+  const username = await getCurrentUsername();
+  if (!username) return { ok: false, error: "Требуется вход" };
+
+  const admin = createAdminClient();
+
+  const { data: trip } = await admin
+    .from("trips")
+    .select("id,title,date_from,date_to,base_currency")
+    .eq("slug", slug)
+    .maybeSingle();
+  const t = trip as
+    | {
+        id: string;
+        title: string;
+        date_from: string;
+        date_to: string;
+        base_currency: string;
+      }
+    | null;
+  if (!t) return { ok: false, error: "Поездка не найдена" };
+
+  const { data: destsRaw } = await admin
+    .from("destinations")
+    .select("name,country,flag_code")
+    .eq("trip_id", t.id)
+    .order("sort_order", { ascending: true });
+  const ctx: TripContext = {
+    title: t.title,
+    dateFrom: t.date_from,
+    dateTo: t.date_to,
+    baseCurrency: t.base_currency,
+    destinations: ((destsRaw ?? []) as Array<{
+      name: string;
+      country: string | null;
+      flag_code: string | null;
+    }>).map((d) => ({
+      name: d.name,
+      country: d.country,
+      flagCode: d.flag_code,
+    })),
+  };
+
+  const { data: docs } = await admin
+    .from("documents")
+    .select("id,storage_path,mime,parsed_status")
+    .eq("trip_id", t.id)
+    .eq("archived", false)
+    .in("parsed_status", ["parsed", "needs_review"]);
+
+  let reparsed = 0;
+  let failed = 0;
+  for (const d of (docs ?? []) as Array<{
+    id: string;
+    storage_path: string;
+    mime: string | null;
+    parsed_status: string | null;
+  }>) {
+    try {
+      const dl = await admin.storage.from(DOCS_BUCKET).download(d.storage_path);
+      if (dl.error || !dl.data) {
+        failed++;
+        continue;
+      }
+      const buf = new Uint8Array(await dl.data.arrayBuffer());
+      const parsed = await parseDocument({
+        bytes: buf,
+        mime: d.mime ?? "application/pdf",
+        trip: ctx,
+      });
+      await admin
+        .from("documents")
+        .update({
+          parsed_fields: parsed,
+          parsed_status: "needs_review",
+          parsed_at: new Date().toISOString(),
+        })
+        .eq("id", d.id);
+
+      // Сразу же коммитим (для уже существующих rows это no-op на
+      // уровне flights/stays/expenses, но events будут обновлены
+      // свежими tour-полями через createEventsForX).
+      await commitParsedDocument(admin, {
+        tripId: t.id,
+        docId: d.id,
+        username,
+      });
+      reparsed++;
+    } catch (e) {
+      console.error(`[reparseDocumentsAction] doc ${d.id}:`, e);
+      failed++;
+    }
+  }
+
+  // После обновления parsed_fields — прогоняем полный rebuild, чтобы
+  // tour_details / start_at / ticket_url легли на существующие события.
+  try {
+    await rebuildTripEvents(admin, slug);
+  } catch (e) {
+    console.error("[reparseDocumentsAction] rebuild:", e);
+  }
+
+  revalidatePath(`/trips/${slug}`);
+  revalidatePath(`/trips/${slug}/days`);
+  revalidatePath(`/trips/${slug}/budget`);
+  return { ok: true, reparsed, failed };
 }
