@@ -306,6 +306,7 @@ export async function addEventAttachmentAction(
   const next = [...seeded, { document_id: documentId, label }];
   await admin.from("events").update({ attachments: next }).eq("id", eventId);
   revalidatePath(`/trips/${slug}/days/${dayNumber}`);
+  revalidatePath(`/trips/${slug}/days/${dayNumber}/events/${eventId}`);
 }
 
 export async function removeEventAttachmentAction(
@@ -333,6 +334,7 @@ export async function removeEventAttachmentAction(
   const next = current.filter((a) => a.document_id !== documentId);
   await admin.from("events").update({ attachments: next }).eq("id", eventId);
   revalidatePath(`/trips/${slug}/days/${dayNumber}`);
+  revalidatePath(`/trips/${slug}/days/${dayNumber}/events/${eventId}`);
 }
 
 /**
