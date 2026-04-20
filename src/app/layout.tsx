@@ -23,8 +23,14 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "WeGoTwo",
+  },
+  other: {
+    // Next.js 15 выдаёт только mobile-web-app-capable, но iOS Safari
+    // запускает сайт в standalone с домашнего экрана только по
+    // apple-mobile-web-app-capable, поэтому держим оба.
+    "apple-mobile-web-app-capable": "yes",
   },
   icons: {
     icon: [
