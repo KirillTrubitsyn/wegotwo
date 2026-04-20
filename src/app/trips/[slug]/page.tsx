@@ -10,6 +10,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import CityTabs, { type CityTab } from "@/components/CityTabs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
+import { displayDayDetail } from "@/lib/ingest/day-detail";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -271,8 +272,9 @@ export default async function TripOverviewPage({
             <div className="space-y-[10px]">
               {previewDays.map((d) => {
                 const count = evtCounts.get(d.id) ?? 0;
-                const detail = d.detail
-                  ? d.detail
+                const cleanDetail = displayDayDetail(d.detail);
+                const detail = cleanDetail
+                  ? cleanDetail
                   : count > 0
                   ? `${count} ${plural(count, [
                       "событие",

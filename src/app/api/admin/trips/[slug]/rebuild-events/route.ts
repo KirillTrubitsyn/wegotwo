@@ -1,31 +1,18 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  createEventsForFlight,
-  createEventsForStay,
-  createEventsForExpense,
-} from "@/lib/ingest/events";
-import type {
-  FlightFields,
-  StayFields,
-  ExpenseFields,
-} from "@/lib/gemini/schema";
+import { rebuildTripEvents } from "@/lib/ingest/rebuild";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 /**
  * POST /api/admin/trips/{slug}/rebuild-events
  *   Authorization: Bearer <WGT_INGEST_TOKEN>
  *
- * Walks all flights, stays and expenses for the trip and inserts
- * corresponding timeline events on the matching days. Idempotent:
- * events with the same (day_id, kind, start_at, title) tuple are
- * skipped.
- *
- * Useful to backfill timelines for trips that were ingested before
- * auto-event generation was added to the commit pipeline.
+ * Bearer-token wrapper around `rebuildTripEvents`. Used for
+ * CI/scripted invocation. The in-app "Обновить таймлайн" button
+ * uses a server action instead; both share the same core.
  */
 export async function POST(
   req: Request,
@@ -51,186 +38,12 @@ export async function POST(
   const admin = createAdminClient();
 
   try {
-    const { data: tripRow, error: tripErr } = await admin
-      .from("trips")
-      .select("id,primary_tz")
-      .eq("slug", slug)
-      .maybeSingle();
-    if (tripErr) {
-      return NextResponse.json(
-        { ok: false, stage: "trip", error: tripErr.message },
-        { status: 500 }
-      );
-    }
-    const trip = tripRow as { id: string; primary_tz: string } | null;
-    if (!trip) {
-      return NextResponse.json(
-        { ok: false, error: "Trip not found" },
-        { status: 404 }
-      );
-    }
-
-    const tripCtx = { id: trip.id, primary_tz: trip.primary_tz };
-
-    // Flights
-    const { data: flightRows, error: fErr } = await admin
-      .from("flights")
-      .select(
-        "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal,segments"
-      )
-      .eq("trip_id", trip.id);
-    if (fErr) {
-      return NextResponse.json(
-        { ok: false, stage: "flights:select", error: fErr.message },
-        { status: 500 }
-      );
-    }
-    let flightEvents = 0;
-    type FlightRow = Omit<FlightFields, "segments"> & {
-      segments: unknown;
-    };
-    for (const raw of (flightRows ?? []) as FlightRow[]) {
-      const segs = Array.isArray(raw.segments)
-        ? (raw.segments as FlightFields["segments"])
-        : [];
-      const r: FlightFields = {
-        airline: raw.airline,
-        code: raw.code,
-        from_code: raw.from_code,
-        from_city: raw.from_city,
-        to_code: raw.to_code,
-        to_city: raw.to_city,
-        dep_at: raw.dep_at,
-        arr_at: raw.arr_at,
-        seat: raw.seat,
-        pnr: raw.pnr,
-        baggage: raw.baggage,
-        terminal: raw.terminal,
-        segments: segs,
-      };
-      try {
-        flightEvents += await createEventsForFlight(admin, tripCtx, r);
-      } catch (e) {
-        return NextResponse.json(
-          {
-            ok: false,
-            stage: "flights:event",
-            error: (e as Error).message,
-            row: r,
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Stays
-    const { data: stayRows, error: sErr } = await admin
-      .from("stays")
-      .select(
-        "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency"
-      )
-      .eq("trip_id", trip.id);
-    if (sErr) {
-      return NextResponse.json(
-        { ok: false, stage: "stays:select", error: sErr.message },
-        { status: 500 }
-      );
-    }
-    let stayEvents = 0;
-    type StayRow = Omit<StayFields, "country_code"> & {
-      destination_id: string | null;
-    };
-    for (const r of (stayRows ?? []) as StayRow[]) {
-      const fields: StayFields = {
-        title: r.title,
-        address: r.address,
-        check_in: r.check_in,
-        check_out: r.check_out,
-        host: r.host,
-        host_phone: r.host_phone,
-        confirmation: r.confirmation,
-        price: typeof r.price === "string" ? Number(r.price) : r.price,
-        currency: r.currency,
-        country_code: null,
-      };
-      try {
-        stayEvents += await createEventsForStay(
-          admin,
-          tripCtx,
-          fields,
-          r.destination_id
-        );
-      } catch (e) {
-        return NextResponse.json(
-          {
-            ok: false,
-            stage: "stays:event",
-            error: (e as Error).message,
-            row: r,
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Expenses
-    const { data: expRows, error: eErr } = await admin
-      .from("expenses")
-      .select(
-        "id,merchant,description,occurred_on,amount_original,currency_original,category"
-      )
-      .eq("trip_id", trip.id);
-    if (eErr) {
-      return NextResponse.json(
-        { ok: false, stage: "expenses:select", error: eErr.message },
-        { status: 500 }
-      );
-    }
-    let expenseEvents = 0;
-    for (const r of (expRows ?? []) as Array<{
-      merchant: string | null;
-      description: string | null;
-      occurred_on: string | null;
-      amount_original: number | string;
-      currency_original: string;
-      category: string;
-    }>) {
-      const fields: ExpenseFields = {
-        merchant: r.merchant,
-        description: r.description,
-        occurred_on: r.occurred_on,
-        amount:
-          typeof r.amount_original === "string"
-            ? Number(r.amount_original)
-            : r.amount_original,
-        currency: r.currency_original,
-        category: r.category as ExpenseFields["category"],
-        items: [],
-      };
-      try {
-        expenseEvents += await createEventsForExpense(admin, tripCtx, fields);
-      } catch (ex) {
-        return NextResponse.json(
-          {
-            ok: false,
-            stage: "expenses:event",
-            error: (ex as Error).message,
-            row: r,
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    return NextResponse.json({
-      ok: true,
-      trip_id: trip.id,
-      created: {
-        flights: flightEvents,
-        stays: stayEvents,
-        expenses: expenseEvents,
-      },
-    });
+    const res = await rebuildTripEvents(admin, slug);
+    if (res.ok) return NextResponse.json(res);
+    return NextResponse.json(
+      { ok: false, stage: res.stage, error: res.error },
+      { status: res.status }
+    );
   } catch (outer) {
     return NextResponse.json(
       {

@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { reorderEventAction, deleteEventAction } from "@/app/trips/[slug]/days/actions";
 
+export type TimelineLink = {
+  label: string;
+  url: string;
+  icon?: string | null;
+  kind?: string | null;
+};
+
 export type TimelineEvent = {
   id: string;
   title: string;
@@ -15,6 +22,9 @@ export type TimelineEvent = {
   photo_url: string | null; // signed URL resolved server-side
   start_time: string | null; // HH:MM in trip TZ
   end_time: string | null; // HH:MM in trip TZ
+  booking_url: string | null;
+  map_embed_url: string | null;
+  links: TimelineLink[];
 };
 
 const dotStyles: Record<string, string> = {
@@ -95,11 +105,29 @@ export default function Timeline({
               {event.title}
             </div>
             {event.address && (
-              <div className="text-[12px] text-text-sec mb-1">
+              <div className="text-[12px] text-text-sec mb-1 whitespace-pre-line leading-[1.45]">
                 {event.address}
               </div>
             )}
-            {event.photo_url && (
+            {/* Map preview: iframe for stays, photo for place/meal events. */}
+            {event.map_embed_url ? (
+              <a
+                href={event.map_url ?? event.map_embed_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block mt-2 mb-2 rounded-card overflow-hidden shadow-card bg-bg-surface relative group"
+              >
+                <iframe
+                  src={event.map_embed_url}
+                  className="w-full h-[160px] block border-0 pointer-events-none"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+                <span className="absolute top-2 left-2 inline-flex items-center gap-[5px] px-[10px] py-[5px] rounded-badge text-[11px] font-medium bg-white/95 shadow-card text-blue">
+                  <span>🗺</span> Карты ↗
+                </span>
+              </a>
+            ) : event.photo_url ? (
               <div className="mt-2 mb-2 rounded-card overflow-hidden shadow-card bg-bg-surface">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -109,14 +137,35 @@ export default function Timeline({
                   loading="lazy"
                 />
               </div>
-            )}
+            ) : null}
             {event.notes && (
               <div className="text-[13px] text-text-sec leading-[1.5] whitespace-pre-wrap">
                 {event.notes}
               </div>
             )}
             <div className="flex gap-2 mt-2 flex-wrap">
-              {event.map_url && (
+              {event.booking_url && (
+                <a
+                  href={event.booking_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-gold-lt border border-gold/30 text-[#8a6200] hover:bg-gold/25"
+                >
+                  <span>🔑</span> Бронь ↗
+                </a>
+              )}
+              {event.links?.map((l, idx) => (
+                <a
+                  key={`${l.url}-${idx}`}
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkChipClass(l.kind)}
+                >
+                  <span>{l.icon ?? "🔗"}</span> {l.label}
+                </a>
+              ))}
+              {event.map_url && !event.map_embed_url && (
                 <a
                   href={event.map_url}
                   target="_blank"
@@ -136,16 +185,18 @@ export default function Timeline({
                   <span>📋</span> Меню
                 </a>
               )}
-              {event.website && (
-                <a
-                  href={event.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
-                >
-                  <span>🔗</span> Сайт
-                </a>
-              )}
+              {event.website &&
+                event.website !== event.booking_url &&
+                !event.links?.some((l) => l.url === event.website) && (
+                  <a
+                    href={event.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
+                  >
+                    <span>🔗</span> Сайт
+                  </a>
+                )}
               {event.phone && (
                 <a
                   href={`tel:${event.phone.replace(/[^+\d]/g, "")}`}
@@ -225,6 +276,21 @@ export default function Timeline({
       })}
     </div>
   );
+}
+
+function linkChipClass(kind?: string | null): string {
+  switch (kind) {
+    case "primary":
+      return "inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-blue-lt border border-blue/20 text-blue hover:bg-blue/15";
+    case "board":
+      return "inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface border border-black/10 text-text-main hover:bg-white";
+    case "map":
+      return "inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-blue-lt border border-blue/20 text-blue hover:bg-blue/15";
+    case "phone":
+      return "inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-green-lt border border-green/30 text-green hover:bg-green/20";
+    default:
+      return "inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface";
+  }
 }
 
 function formatTimeRange(start: string | null, end: string | null): string {

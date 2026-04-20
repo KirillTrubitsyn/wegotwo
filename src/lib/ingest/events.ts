@@ -25,8 +25,20 @@ import type {
   StayFields,
   ExpenseFields,
 } from "@/lib/gemini/schema";
+import { mapEmbedUrl, mapSearchUrl } from "@/lib/travel/maps";
+import { detectStayProvider } from "@/lib/travel/airbnb";
+import { lookupAirline } from "@/lib/travel/airlines";
+import { lookupAirport } from "@/lib/travel/airports";
+import { refreshDayDetail } from "@/lib/ingest/day-detail";
 
 type TripCtx = { id: string; primary_tz: string };
+
+type EventLink = {
+  label: string;
+  url: string;
+  icon?: string;
+  kind?: "primary" | "board" | "map" | "phone" | "other";
+};
 
 /**
  * Parse an ISO-8601 date-time string (optional TZ offset) into
@@ -120,21 +132,36 @@ async function findDay(
   return (data as { id: string } | null)?.id ?? null;
 }
 
-async function insertIfNew(
+type EventRow = {
+  trip_id: string;
+  day_id: string;
+  destination_id: string | null;
+  kind: "flight" | "stay" | "activity" | "meal" | "transfer";
+  start_at: string | null;
+  end_at: string | null;
+  title: string;
+  notes: string | null;
+  emoji: string | null;
+  address: string | null;
+  sort_order: number;
+  map_url: string | null;
+  website: string | null;
+  phone: string | null;
+  booking_url: string | null;
+  map_embed_url: string | null;
+  links: EventLink[];
+};
+
+/**
+ * Insert the event if no (day_id, kind, start_at, title) match exists.
+ * Otherwise UPDATE the existing row in place — ingest is idempotent,
+ * but we still want to pick up any new fields (map_url, booking_url,
+ * links, notes) that a later pass populated, e.g. when the dedup
+ * logic merged two stay documents into one.
+ */
+async function upsertEvent(
   admin: SupabaseClient,
-  row: {
-    trip_id: string;
-    day_id: string;
-    destination_id: string | null;
-    kind: "flight" | "stay" | "activity" | "meal" | "transfer";
-    start_at: string | null;
-    end_at: string | null;
-    title: string;
-    notes: string | null;
-    emoji: string | null;
-    address: string | null;
-    sort_order: number;
-  }
+  row: EventRow
 ): Promise<boolean> {
   let q = admin
     .from("events")
@@ -145,14 +172,83 @@ async function insertIfNew(
     .eq("title", row.title);
   if (row.start_at) q = q.eq("start_at", row.start_at);
   const { data: exists } = await q.limit(1).maybeSingle();
-  if (exists && (exists as { id: string }).id) return false;
+
+  if (exists && (exists as { id: string }).id) {
+    const id = (exists as { id: string }).id;
+    // Patch only "enrichment" fields — we never overwrite a user's
+    // manual edit of title / notes from the UI (the UI updates
+    // through updateEventAction which goes through actions.ts).
+    const patch: Record<string, unknown> = {
+      map_url: row.map_url,
+      website: row.website,
+      phone: row.phone,
+      booking_url: row.booking_url,
+      map_embed_url: row.map_embed_url,
+      links: row.links,
+      address: row.address,
+      emoji: row.emoji,
+    };
+    // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
+    // regenerate it on every ingest so price / host updates appear.
+    if (row.notes) patch.notes = row.notes;
+    const { error } = await admin.from("events").update(patch).eq("id", id);
+    if (error) console.error("[events.upsertEvent] update:", error.message);
+    return false;
+  }
 
   const { error } = await admin.from("events").insert(row);
   if (error) {
-    console.error("[events.insertIfNew]", error.message);
+    console.error("[events.upsertEvent] insert:", error.message);
     return false;
   }
   return true;
+}
+
+function buildFlightLinks(
+  airline: string | null | undefined,
+  code: string | null | undefined,
+  fromCode: string | null | undefined,
+  toCode: string | null | undefined
+): {
+  website: string | null;
+  phone: string | null;
+  links: EventLink[];
+} {
+  const links: EventLink[] = [];
+  const carrier = lookupAirline(airline ?? null, code ?? null);
+  const from = lookupAirport(fromCode ?? null);
+  const to = lookupAirport(toCode ?? null);
+
+  if (carrier) {
+    links.push({
+      label: carrier.names[0],
+      url: carrier.manageUrl ?? carrier.url,
+      icon: "✈",
+      kind: "primary",
+    });
+  }
+  if (from) {
+    links.push({
+      label: `Табло ${from.name}`,
+      url: from.boardUrl,
+      icon: "📋",
+      kind: "board",
+    });
+  }
+  if (to) {
+    links.push({
+      label: `Табло ${to.name}`,
+      url: to.boardUrl,
+      icon: "📋",
+      kind: "board",
+    });
+  }
+
+  return {
+    website: carrier?.url ?? null,
+    phone: carrier?.phone ?? null,
+    links,
+  };
 }
 
 export async function createEventsForFlight(
@@ -160,6 +256,7 @@ export async function createEventsForFlight(
   trip: TripCtx,
   f: FlightFields
 ): Promise<number> {
+  const affected: string[] = [];
   // Если Gemini вернул segments — создаём событие на каждый сегмент
   // (по дате вылета этого сегмента). Если сегментов нет — падаем на
   // старый путь и создаём одно событие по top-level полям.
@@ -191,8 +288,14 @@ export async function createEventsForFlight(
       ]
         .filter(Boolean)
         .join(" · ");
+      const extras = buildFlightLinks(
+        seg.airline ?? f.airline,
+        seg.code ?? f.code,
+        seg.from_code,
+        seg.to_code
+      );
 
-      const ok = await insertIfNew(admin, {
+      const ok = await upsertEvent(admin, {
         trip_id: trip.id,
         day_id: dayId,
         destination_id: null,
@@ -204,9 +307,18 @@ export async function createEventsForFlight(
         emoji: "✈️",
         address: null,
         sort_order: 0,
+        map_url: null,
+        website: extras.website,
+        phone: extras.phone,
+        booking_url: null,
+        map_embed_url: null,
+        links: extras.links,
       });
       if (ok) count++;
+      affected.push(dayId);
     }
+    for (const dayId of new Set(affected))
+      await refreshDayDetail(admin, dayId);
     return count;
   }
 
@@ -234,8 +346,9 @@ export async function createEventsForFlight(
   ]
     .filter(Boolean)
     .join(" · ");
+  const extras = buildFlightLinks(f.airline, f.code, f.from_code, f.to_code);
 
-  const ok = await insertIfNew(admin, {
+  const ok = await upsertEvent(admin, {
     trip_id: trip.id,
     day_id: dayId,
     destination_id: null,
@@ -247,14 +360,59 @@ export async function createEventsForFlight(
     emoji: "✈️",
     address: null,
     sort_order: 0,
+    map_url: null,
+    website: extras.website,
+    phone: extras.phone,
+    booking_url: null,
+    map_embed_url: null,
+    links: extras.links,
   });
+  await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
+}
+
+function formatPrice(
+  amount: number | null | undefined,
+  currency: string | null | undefined
+): string | null {
+  if (amount == null) return null;
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return null;
+  const formatted = num.toLocaleString("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
+/**
+ * Format "HH:MM" in the trip's timezone — used to put a concrete
+ * check-in / check-out time into the event notes without depending
+ * on the rendering layer.
+ */
+function formatLocalTime(iso: string | null, tz: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h}:${m}`;
 }
 
 export async function createEventsForStay(
   admin: SupabaseClient,
   trip: TripCtx,
-  s: StayFields,
+  s: StayFields & {
+    lat?: number | null;
+    lon?: number | null;
+    booking_url?: string | null;
+  },
   destinationId: string | null
 ): Promise<number> {
   let count = 0;
@@ -262,11 +420,47 @@ export async function createEventsForStay(
   const checkOut = normalizeDateTime(s.check_out, trip.primary_tz);
 
   const nameLabel = s.title?.trim() || "Проживание";
+  const address = s.address ?? null;
+  const lat = s.lat ?? null;
+  const lon = s.lon ?? null;
+  const mapUrl = mapSearchUrl(address, lat, lon);
+  const mapEmbed = mapEmbedUrl(address, lat, lon);
+  const provider =
+    (s.booking_url && { label: "Бронирование", url: s.booking_url }) ||
+    detectStayProvider(s.confirmation);
+  const bookingUrl = provider?.url ?? null;
+
+  const priceLabel = formatPrice(s.price, s.currency);
+  const checkInTime = formatLocalTime(checkIn?.iso ?? null, trip.primary_tz);
+  const checkOutTime = formatLocalTime(checkOut?.iso ?? null, trip.primary_tz);
+
+  const baseLinks: EventLink[] = [];
+  if (provider) {
+    baseLinks.push({
+      label: provider.label,
+      url: provider.url,
+      icon: "🔑",
+      kind: "primary",
+    });
+  }
+
+  const affected: string[] = [];
 
   if (checkIn) {
     const dayId = await findDay(admin, trip.id, checkIn.localDate);
     if (dayId) {
-      const ok = await insertIfNew(admin, {
+      const notes =
+        [
+          checkInTime ? `Заезд: ${checkInTime}` : null,
+          checkOutTime ? `Выезд: ${checkOutTime}` : null,
+          priceLabel ? `Оплачено: ${priceLabel}` : null,
+          s.confirmation ? `Код: ${s.confirmation}` : null,
+          s.host ? `Хозяин: ${s.host}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null;
+
+      const ok = await upsertEvent(admin, {
         trip_id: trip.id,
         day_id: dayId,
         destination_id: destinationId,
@@ -274,24 +468,33 @@ export async function createEventsForStay(
         start_at: checkIn.iso,
         end_at: null,
         title: `Заселение: ${nameLabel}`,
-        notes: [
-          s.confirmation ? `Код: ${s.confirmation}` : null,
-          s.host ? `Хозяин: ${s.host}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ") || null,
+        notes,
         emoji: "🔑",
-        address: s.address ?? null,
+        address,
         sort_order: -10,
+        map_url: mapUrl,
+        website: bookingUrl,
+        phone: s.host_phone ?? null,
+        booking_url: bookingUrl,
+        map_embed_url: mapEmbed,
+        links: baseLinks,
       });
       if (ok) count++;
+      affected.push(dayId);
     }
   }
 
   if (checkOut) {
     const dayId = await findDay(admin, trip.id, checkOut.localDate);
     if (dayId) {
-      const ok = await insertIfNew(admin, {
+      const notes =
+        [
+          checkOutTime ? `Выезд: ${checkOutTime}` : null,
+          s.confirmation ? `Код: ${s.confirmation}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null;
+      const ok = await upsertEvent(admin, {
         trip_id: trip.id,
         day_id: dayId,
         destination_id: destinationId,
@@ -299,14 +502,24 @@ export async function createEventsForStay(
         start_at: checkOut.iso,
         end_at: null,
         title: `Выезд: ${nameLabel}`,
-        notes: null,
+        notes,
         emoji: "🧳",
-        address: s.address ?? null,
+        address,
         sort_order: 100,
+        map_url: mapUrl,
+        website: bookingUrl,
+        phone: s.host_phone ?? null,
+        booking_url: bookingUrl,
+        map_embed_url: null,
+        links: baseLinks,
       });
       if (ok) count++;
+      affected.push(dayId);
     }
   }
+
+  for (const dayId of new Set(affected))
+    await refreshDayDetail(admin, dayId);
 
   return count;
 }
@@ -344,7 +557,7 @@ export async function createEventsForExpense(
   const title = e.description?.trim() || e.merchant?.trim() || "Событие";
   const notes = e.merchant && e.description ? e.merchant : null;
 
-  const ok = await insertIfNew(admin, {
+  const ok = await upsertEvent(admin, {
     trip_id: trip.id,
     day_id: dayId,
     destination_id: null,
@@ -356,6 +569,13 @@ export async function createEventsForExpense(
     emoji: kindInfo.emoji,
     address: null,
     sort_order: 10,
+    map_url: null,
+    website: null,
+    phone: null,
+    booking_url: null,
+    map_embed_url: null,
+    links: [],
   });
+  await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
 }
