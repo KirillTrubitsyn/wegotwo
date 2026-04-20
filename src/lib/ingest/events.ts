@@ -198,28 +198,30 @@ async function upsertEvent(
     // Patch only "enrichment" fields — we never overwrite a user's
     // manual edit of title / notes from the UI (the UI updates
     // through updateEventAction which goes through actions.ts).
+    //
+    // Политика перезаписи: поля, которые юзер может отредактировать
+    // вручную (map_url, website, ticket_url, tour_details,
+    // description), мы обновляем ТОЛЬКО если ingest принёс
+    // non-null. Null/пустое значение означает «мы не знаем», а не
+    // «сбросить». Иначе rebuild после ручного SQL-апдейта стирает
+    // пользовательские значения.
     const patch: Record<string, unknown> = {
-      map_url: row.map_url,
-      website: row.website,
-      phone: row.phone,
       booking_url: row.booking_url,
       map_embed_url: row.map_embed_url,
       links: row.links,
       address: row.address,
       emoji: row.emoji,
+      phone: row.phone,
     };
+    if (row.map_url != null) patch.map_url = row.map_url;
+    if (row.website != null) patch.website = row.website;
+    if (row.ticket_url != null) patch.ticket_url = row.ticket_url;
+    if (row.tour_details != null) patch.tour_details = row.tour_details;
+    if (row.description != null && row.description !== "")
+      patch.description = row.description;
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
-    // Phase 16 tour fields: only PATCH the structured tour_details /
-    // ticket_url; we never overwrite a non-empty `description` with
-    // an empty one, because the long-form description is usually
-    // filled by the user manually (scraped from Tripster) and the
-    // ingest layer won't know how to regenerate it.
-    if (row.ticket_url !== undefined) patch.ticket_url = row.ticket_url;
-    if (row.tour_details !== undefined) patch.tour_details = row.tour_details;
-    if (row.description != null && row.description !== "")
-      patch.description = row.description;
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);

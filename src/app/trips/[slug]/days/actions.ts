@@ -314,7 +314,6 @@ export async function reorderEventAction(
 const dayMetaSchema = z.object({
   title: z.string().trim().max(120).optional().or(z.literal("")),
   detail: z.string().trim().max(400).optional().or(z.literal("")),
-  badge: z.string().trim().max(24).optional().or(z.literal("")),
 });
 
 export async function updateDayMetaAction(
@@ -330,17 +329,17 @@ export async function updateDayMetaAction(
   const parsed = dayMetaSchema.safeParse({
     title: String(formData.get("title") ?? ""),
     detail: String(formData.get("detail") ?? ""),
-    badge: String(formData.get("badge") ?? ""),
   });
   if (!parsed.success) return;
 
+  // `badge` убрали из формы — не перезаписываем его, чтобы система
+  // могла сохранить «Прилёт / Выезд», проставленные на ингесте.
   const admin = createAdminClient();
   await admin
     .from("days")
     .update({
       title: parsed.data.title || null,
       detail: parsed.data.detail || null,
-      badge: parsed.data.badge || null,
     })
     .eq("id", ctx.day.id);
 

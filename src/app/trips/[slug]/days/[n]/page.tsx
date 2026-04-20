@@ -279,18 +279,6 @@ export default async function DayDetailPage({
               className="w-full bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"
             />
           </div>
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold mb-1">
-              Пометка
-            </label>
-            <input
-              name="badge"
-              defaultValue={day.badge ?? ""}
-              placeholder="Например: Прилёт, Выезд"
-              maxLength={24}
-              className="w-full bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"
-            />
-          </div>
           <div className="flex justify-end">
             <button
               type="submit"
