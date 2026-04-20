@@ -92,6 +92,19 @@ export async function rebuildTripEvents(
       .in("emoji", ["🔑", "🧳"]);
   }
 
+  // ------------------------------------------------------------
+  // Event-level dedup. Схлопывает события с одинаковым
+  // (day_id, kind, normalizeTitle(title)) — случай рейса с двумя
+  // пассажирами, где Gemini выдавал разный регистр airline и
+  // upsertEvent до этого PR плодил дубли. Делаем до flights/stays/
+  // expenses, чтобы последующие upsert'ы попали в единого survivor'а.
+  // ------------------------------------------------------------
+  try {
+    await dedupeEventsByTitle(admin, trip.id);
+  } catch (e) {
+    console.error("[rebuild] dedupeEventsByTitle:", e);
+  }
+
   // Flights
   const { data: flightRows, error: fErr } = await admin
     .from("flights")
@@ -542,4 +555,178 @@ function fieldScore(s: {
     if (v != null && v !== "") n++;
   }
   return n;
+}
+
+type DedupEventRow = {
+  id: string;
+  day_id: string | null;
+  kind: string | null;
+  title: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  description: string | null;
+  photo_path: string | null;
+  map_url: string | null;
+  map_embed_url: string | null;
+  ticket_url: string | null;
+  booking_url: string | null;
+  website: string | null;
+  phone: string | null;
+  notes: string | null;
+  address: string | null;
+  emoji: string | null;
+  tour_details: unknown;
+  document_id: string | null;
+  attachments: unknown;
+  created_at: string | null;
+};
+
+function normalizeEventTitleForDedup(title: string | null | undefined): string {
+  if (!title) return "";
+  return title.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * JS-аналог SQL-снипета phase18_merge_duplicate_events.sql. Схлопывает
+ * события с одинаковым (day_id, kind, normalizeTitle(title)). Нужен
+ * на случай, когда:
+ *   • SQL-снипет не был запущен (новый пользователь / новая поездка);
+ *   • в базе остались дубли с разным регистром airline («Air Serbia»
+ *     vs «AIR SERBIA»), которые старый case-sensitive upsertEvent
+ *     плодил раньше.
+ *
+ * Survivor — строка с максимумом заполненных полей. Неpустые поля из
+ * loser'ов coalesce'ятся в survivor; attachments объединяются по
+ * document_id; loser'ы удаляются. Ingest после этого шага увидит одну
+ * строку и просто доджойнит ещё один attachment.
+ */
+async function dedupeEventsByTitle(
+  admin: SupabaseClient,
+  tripId: string
+): Promise<void> {
+  const { data: rows, error } = await admin
+    .from("events")
+    .select(
+      "id,day_id,kind,title,start_at,end_at,description,photo_path,map_url,map_embed_url,ticket_url,booking_url,website,phone,notes,address,emoji,tour_details,document_id,attachments,created_at"
+    )
+    .eq("trip_id", tripId);
+  if (error) {
+    console.warn("[rebuild] dedupeEventsByTitle select:", error.message);
+    return;
+  }
+  const events = (rows ?? []) as DedupEventRow[];
+  if (events.length === 0) return;
+
+  // Группируем по (day_id, kind, normalizeTitle). day_id=null и/или
+  // kind=null — такие события считаем «нестандартными» и не трогаем.
+  const groups = new Map<string, DedupEventRow[]>();
+  for (const e of events) {
+    if (!e.day_id || !e.kind || !e.title) continue;
+    const key = `${e.day_id}|${e.kind}|${normalizeEventTitleForDedup(e.title)}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(e);
+    groups.set(key, arr);
+  }
+
+  for (const arr of groups.values()) {
+    if (arr.length < 2) continue;
+
+    // Score: сколько непустых enrichment-полей.
+    const score = (e: DedupEventRow) =>
+      [
+        e.description,
+        e.photo_path,
+        e.tour_details,
+        e.map_url,
+        e.map_embed_url,
+        e.ticket_url,
+        e.booking_url,
+        e.start_at,
+      ].filter((v) => v != null).length;
+
+    arr.sort((a, b) => {
+      const d = score(b) - score(a);
+      if (d !== 0) return d;
+      const ac = a.created_at ?? "";
+      const bc = b.created_at ?? "";
+      return ac < bc ? -1 : ac > bc ? 1 : 0;
+    });
+    const keep = arr[0];
+    const losers = arr.slice(1);
+
+    // Coalesce простых полей из loser'ов в survivor.
+    const patch: Record<string, unknown> = {};
+    const takeFirst = <K extends keyof DedupEventRow>(key: K) => {
+      if (keep[key] != null && keep[key] !== "") return;
+      for (const l of losers) {
+        if (l[key] != null && l[key] !== "") {
+          patch[key as string] = l[key];
+          return;
+        }
+      }
+    };
+    takeFirst("start_at");
+    takeFirst("end_at");
+    takeFirst("description");
+    takeFirst("photo_path");
+    takeFirst("map_url");
+    takeFirst("map_embed_url");
+    takeFirst("ticket_url");
+    takeFirst("booking_url");
+    takeFirst("website");
+    takeFirst("phone");
+    takeFirst("notes");
+    takeFirst("address");
+    takeFirst("emoji");
+    takeFirst("tour_details");
+    takeFirst("document_id");
+
+    // Merge attachments: union по document_id.
+    const seen = new Set<string>();
+    const merged: Array<{ document_id: string; label: string | null }> = [];
+    const pushAttachments = (raw: unknown) => {
+      if (!Array.isArray(raw)) return;
+      for (const x of raw) {
+        if (!x || typeof x !== "object") continue;
+        const r = x as Record<string, unknown>;
+        const docId = r.document_id != null ? String(r.document_id) : "";
+        if (!docId || seen.has(docId)) continue;
+        seen.add(docId);
+        merged.push({
+          document_id: docId,
+          label: r.label == null ? null : String(r.label),
+        });
+      }
+    };
+    pushAttachments(keep.attachments);
+    for (const l of losers) pushAttachments(l.attachments);
+    patch.attachments = merged;
+
+    if (Object.keys(patch).length > 0) {
+      const upd = await admin
+        .from("events")
+        .update(patch)
+        .eq("id", keep.id);
+      if (upd.error) {
+        console.warn(
+          "[rebuild] dedupeEventsByTitle update:",
+          upd.error.message
+        );
+      }
+    }
+
+    const loserIds = losers.map((l) => l.id);
+    if (loserIds.length > 0) {
+      const del = await admin
+        .from("events")
+        .delete()
+        .in("id", loserIds);
+      if (del.error) {
+        console.warn(
+          "[rebuild] dedupeEventsByTitle delete:",
+          del.error.message
+        );
+      }
+    }
+  }
 }
