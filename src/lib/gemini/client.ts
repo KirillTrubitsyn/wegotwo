@@ -175,6 +175,11 @@ export async function parseDocument(args: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       responseSchema: GEMINI_RESPONSE_SCHEMA as any,
       temperature: 0,
+      // Дефолтный maxOutputTokens у flash-lite-preview мал (1–2k), и
+      // ответ обрезается по середине строки, ронял JSON.parse.
+      // 8192 хватает с запасом на самый богатый Tripster-билет
+      // (stay + tour + extras + items).
+      maxOutputTokens: 8192,
     },
   });
 
@@ -185,6 +190,7 @@ export async function parseDocument(args: {
     text?: string;
     candidates?: {
       content?: { parts?: { text?: string }[] };
+      finishReason?: string;
     }[];
   };
   if (typeof anyResp.text === "string") {
@@ -193,6 +199,7 @@ export async function parseDocument(args: {
     const parts = anyResp.candidates?.[0]?.content?.parts ?? [];
     raw = parts.map((p) => p?.text ?? "").join("");
   }
+  const finishReason = anyResp.candidates?.[0]?.finishReason ?? null;
   if (!raw) {
     throw new Error("Gemini returned an empty response");
   }
@@ -208,9 +215,21 @@ export async function parseDocument(args: {
   try {
     obj = JSON.parse(stripped);
   } catch {
-    throw new Error(
-      "Gemini returned invalid JSON: " + stripped.slice(0, 200)
-    );
+    // Gemini иногда режет ответ по середине (MAX_TOKENS). Пробуем
+    // грубо дозакрыть открытые строки/скобки; это не идеально, но
+    // спасает типичный паттерн «оборвалось на поле description».
+    const repaired = tryRepairJson(stripped);
+    if (repaired) {
+      try {
+        obj = JSON.parse(repaired);
+      } catch {
+        throw new Error(
+          buildParseErrorMessage(stripped, finishReason)
+        );
+      }
+    } else {
+      throw new Error(buildParseErrorMessage(stripped, finishReason));
+    }
   }
 
   const parsed = ParsedDocument.safeParse(obj);
@@ -222,4 +241,88 @@ export async function parseDocument(args: {
   }
 
   return parsed.data;
+}
+
+/**
+ * Попробовать закрыть обрезанный JSON: находим последнюю открытую
+ * строку `"…`, обрезаем её до последней валидной точки, затем
+ * добавляем нужное число `}` / `]` для баланса. Возвращаем null,
+ * если структура слишком разломана.
+ */
+function tryRepairJson(s: string): string | null {
+  if (!s || s.length < 2) return null;
+  let out = s;
+
+  // Шаг 1: если ответ обрывается внутри строкового значения
+  // (нечётное число неэкранированных кавычек) — обрезаем всё после
+  // последней валидной запятой/скобки и закрываем строку.
+  const quoteCount = countUnescaped(out, '"');
+  if (quoteCount % 2 === 1) {
+    // Последний надёжный якорь: самая правая запятая или {…[ на
+    // корректной глубине. Для простоты — режем по последнему `"` и
+    // закрываем кавычкой.
+    const lastQuote = out.lastIndexOf('"');
+    if (lastQuote > 0) {
+      out = out.slice(0, lastQuote) + '""';
+    } else {
+      return null;
+    }
+  }
+
+  // Шаг 2: отрезать висящую запятую.
+  out = out.replace(/,\s*$/, "");
+
+  // Шаг 3: досыпать недостающие }/] до баланса.
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inStr = false;
+  let esc = false;
+  for (const c of out) {
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (c === "\\") {
+      esc = true;
+      continue;
+    }
+    if (c === '"') inStr = !inStr;
+    if (inStr) continue;
+    if (c === "{") openBraces++;
+    else if (c === "}") openBraces--;
+    else if (c === "[") openBrackets++;
+    else if (c === "]") openBrackets--;
+  }
+  if (openBraces < 0 || openBrackets < 0) return null;
+  out += "]".repeat(openBrackets) + "}".repeat(openBraces);
+  return out;
+}
+
+function countUnescaped(s: string, ch: string): number {
+  let n = 0;
+  let esc = false;
+  for (const c of s) {
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (c === "\\") {
+      esc = true;
+      continue;
+    }
+    if (c === ch) n++;
+  }
+  return n;
+}
+
+function buildParseErrorMessage(
+  raw: string,
+  finishReason: string | null
+): string {
+  const reason = finishReason ? ` (finish_reason=${finishReason})` : "";
+  const hint =
+    finishReason === "MAX_TOKENS"
+      ? " — ответ обрезан по лимиту токенов, поднимите GEMINI_MAX_OUTPUT_TOKENS"
+      : "";
+  return `Gemini returned invalid JSON${reason}${hint}: ${raw.slice(0, 200)}…`;
 }
