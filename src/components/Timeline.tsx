@@ -214,16 +214,15 @@ export default function Timeline({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface border border-black/10 text-text-main hover:bg-white"
                 >
-                  <span>🎫</span>{" "}
-                  {t.label ? `Билет ${t.label}` : "Билет"}
+                  <span>🎫</span> {renderTicketLabel(t.label)}
                 </a>
               ))}
               {dueLabel && (
                 <span
-                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-semibold bg-accent text-white tnum"
-                  title="Доплата гиду"
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-semibold bg-accent text-white"
                 >
-                  <span>💰</span> {dueLabel}
+                  <span>💰</span> Доплата гиду{" "}
+                  <span className="tnum">{dueLabel}</span>
                 </span>
               )}
               {event.booking_url && (
@@ -319,6 +318,32 @@ function buildTicketButtons(event: TimelineEvent): TimelineAttachment[] {
     return [{ url: event.document_url, label: null }];
   }
   return [];
+}
+
+/**
+ * Имя кнопки «🎫 …» для одного attachment'а. Цель:
+ * — для Tripster-билета, где label взят из documents.title
+ *   («Билет №30032-6377991»), не дублировать слово «Билет» и не
+ *   таскать номер в подпись — кнопка просто «Билет»;
+ * — для рейса с двумя посадочными, где label — имя пассажира
+ *   («Kirill», «Marina»), показывать «Билет Kirill».
+ *
+ * Алгоритм: срезаем стартовый шум («Билет», «Ticket», «Посадочный»,
+ * «Boarding pass») + разделители. Если остался только мусор (№, цифры,
+ * пробелы) — кнопка «Билет». Иначе — «Билет {остаток}».
+ */
+function renderTicketLabel(label: string | null): string {
+  if (!label) return "Билет";
+  const trimmed = label.trim();
+  if (!trimmed) return "Билет";
+  const stripped = trimmed
+    .replace(
+      /^(билет|ticket|boarding[\s_-]*pass|посадочн\w*)[\s:№#\-–—.,/]*/i,
+      ""
+    )
+    .trim();
+  if (!stripped || /^[№#\d\s\-–—.,/]+$/.test(stripped)) return "Билет";
+  return `Билет ${stripped}`;
 }
 
 function linkChipClass(kind?: string | null): string {
