@@ -793,6 +793,10 @@ export async function createEventsForStay(
   if (checkOut) {
     const dayId = await findDay(admin, trip.id, checkOut.localDate);
     if (dayId) {
+      // Событие выезда — «напоминалка», всё остальное (билет Airbnb,
+      // карта, телефон хозяина, ссылка на бронь) уже есть на карточке
+      // Заселения. Оставляем только время и адрес, чтобы Таймлайн в
+      // день отъезда не дублировал те же кнопки.
       const notes =
         [
           checkOutTime ? `Выезд: ${checkOutTime}` : null,
@@ -812,16 +816,14 @@ export async function createEventsForStay(
         emoji: "🧳",
         address,
         sort_order: 100,
-        map_url: mapUrl,
-        website: bookingUrl,
-        phone: s.host_phone ?? null,
-        booking_url: bookingUrl,
+        map_url: null,
+        website: null,
+        phone: null,
+        booking_url: null,
         map_embed_url: null,
-        links: baseLinks,
-        document_id: documentId,
-        attachment: documentId
-          ? { document_id: documentId, label: null }
-          : null,
+        links: [],
+        document_id: null,
+        attachment: null,
       });
       if (ok) count++;
       affected.push(dayId);
