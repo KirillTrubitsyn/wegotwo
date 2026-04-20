@@ -306,26 +306,43 @@ async function commitStay(
   const bookingUrl =
     detectStayProvider(s.confirmation)?.url ?? null;
 
-  const { data, error } = await admin
+  // Основной insert с booking_url. Если миграция phase14 не накатилась,
+  // ретраим без этой колонки — не блокируем ingest новых документов.
+  const basePayload: Record<string, unknown> = {
+    trip_id: tripId,
+    destination_id: destinationId,
+    document_id: docId,
+    title: s.title,
+    address: s.address,
+    check_in: s.check_in,
+    check_out: s.check_out,
+    host: s.host,
+    host_phone: s.host_phone,
+    confirmation: s.confirmation,
+    price: s.price,
+    currency: s.currency,
+    raw: s,
+  };
+  let insertRes = await admin
     .from("stays")
-    .insert({
-      trip_id: tripId,
-      destination_id: destinationId,
-      document_id: docId,
-      title: s.title,
-      address: s.address,
-      check_in: s.check_in,
-      check_out: s.check_out,
-      host: s.host,
-      host_phone: s.host_phone,
-      confirmation: s.confirmation,
-      price: s.price,
-      currency: s.currency,
-      booking_url: bookingUrl,
-      raw: s,
-    })
+    .insert({ ...basePayload, booking_url: bookingUrl })
     .select("id")
     .single();
+  if (
+    insertRes.error &&
+    /booking_url/i.test(insertRes.error.message)
+  ) {
+    console.warn(
+      "[commit] stays.booking_url missing, retrying without it:",
+      insertRes.error.message
+    );
+    insertRes = await admin
+      .from("stays")
+      .insert(basePayload)
+      .select("id")
+      .single();
+  }
+  const { data, error } = insertRes;
   if (error || !data) {
     return { ok: false, error: error?.message ?? "Не удалось создать stay" };
   }
