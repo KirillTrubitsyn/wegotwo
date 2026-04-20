@@ -245,6 +245,14 @@ async function upsertEvent(
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
+    // Stay/flight/transfer — события, у которых description не
+    // используется (блок «Подробнее» — это только для tour/activity).
+    // Если в строке висит устаревший мусор от прошлых парсингов
+    // (Gemini когда-то возвращал prose-дамп полей в summary/
+    // description) — очищаем его при каждом rebuild.
+    if (row.kind === "stay" || row.kind === "flight" || row.kind === "transfer") {
+      patch.description = null;
+    }
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);
