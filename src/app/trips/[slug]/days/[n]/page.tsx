@@ -5,10 +5,11 @@ import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
-import Timeline, { type TimelineEvent } from "@/components/Timeline";
+import Timeline, { type TimelineEvent, type TimelineLink } from "@/components/Timeline";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { formatTimeInTz } from "@/lib/format-tz";
+import { displayDayDetail } from "@/lib/ingest/day-detail";
 import { updateDayMetaAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ type EventRow = {
   start_at: string | null;
   end_at: string | null;
   sort_order: number | null;
+  booking_url: string | null;
+  map_embed_url: string | null;
+  links: TimelineLink[] | null;
 };
 
 export default async function DayDetailPage({
@@ -94,9 +98,13 @@ export default async function DayDetailPage({
   const { data: eventsData } = await admin
     .from("events")
     .select(
-      "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+      "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
     )
     .eq("day_id", day.id)
+    // Сортируем хронологически: сначала события с известным временем,
+    // затем — без времени, в порядке sort_order. Это убирает случайное
+    // "наслоение" check-in / flight / activity на один и тот же день.
+    .order("start_at", { ascending: true, nullsFirst: false })
     .order("sort_order", { ascending: true });
 
   const rawEvents = (eventsData ?? []) as EventRow[];
@@ -133,6 +141,9 @@ export default async function DayDetailPage({
     photo_url: e.photo_path ? photoUrlByPath.get(e.photo_path) ?? null : null,
     start_time: formatTimeInTz(e.start_at, trip.primary_tz),
     end_time: formatTimeInTz(e.end_at, trip.primary_tz),
+    booking_url: e.booking_url,
+    map_embed_url: e.map_embed_url,
+    links: Array.isArray(e.links) ? e.links : [],
   }));
 
   const today = new Date().toISOString().slice(0, 10);
@@ -194,7 +205,7 @@ export default async function DayDetailPage({
             </label>
             <input
               name="detail"
-              defaultValue={day.detail ?? ""}
+              defaultValue={displayDayDetail(day.detail) ?? ""}
               placeholder="Например: перелёт Москва → Тиват, заселение"
               maxLength={400}
               className="w-full bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"

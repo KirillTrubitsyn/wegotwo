@@ -8,6 +8,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import DayCard from "@/components/DayCard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
+import { displayDayDetail } from "@/lib/ingest/day-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -151,7 +152,8 @@ export default async function TripDaysPage({
               ? null
               : null;
             const detailBits: string[] = [];
-            if (d.detail) detailBits.push(d.detail);
+            const cleanDetail = displayDayDetail(d.detail);
+            if (cleanDetail) detailBits.push(cleanDetail);
             else if (eventCount > 0)
               detailBits.push(
                 `${eventCount} ${plural(eventCount, [

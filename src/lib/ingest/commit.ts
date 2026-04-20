@@ -29,6 +29,7 @@ import {
   createEventsForExpense,
 } from "@/lib/ingest/events";
 import { resolveDestinationForDate } from "@/lib/trips/destinations";
+import { detectStayProvider } from "@/lib/travel/airbnb";
 
 export type CommitResult =
   | { ok: true; kind: "flight" | "stay" | "expense"; rowId: string; created: boolean }
@@ -94,17 +95,48 @@ export async function commitParsedDocument(
   if (pd.type === "stay") {
     const res = await commitStay(admin, tripId, docId, pd.stay);
     if (res.ok) {
-      // Look up destination_id we resolved (or null) for the stay.
+      // Подтягиваем строку stays целиком — нам нужны lat/lon и booking_url,
+      // которые могли быть добавлены при merge либо выведены из confirmation.
+      // Это даёт событию правильный Google Maps embed и ссылку на бронь.
       const { data: stay } = await admin
         .from("stays")
-        .select("destination_id")
+        .select(
+          "destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+        )
         .eq("id", res.rowId)
         .maybeSingle();
       const destId =
         (stay as { destination_id: string | null } | null)?.destination_id ??
         null;
       try {
-        await createEventsForStay(admin, tripCtx, pd.stay, destId);
+        const merged = (stay ?? {}) as Record<string, unknown>;
+        await createEventsForStay(
+          admin,
+          tripCtx,
+          {
+            title: (merged.title as string | null) ?? pd.stay.title,
+            address: (merged.address as string | null) ?? pd.stay.address,
+            check_in:
+              (merged.check_in as string | null) ?? pd.stay.check_in,
+            check_out:
+              (merged.check_out as string | null) ?? pd.stay.check_out,
+            host: (merged.host as string | null) ?? pd.stay.host,
+            host_phone:
+              (merged.host_phone as string | null) ?? pd.stay.host_phone,
+            confirmation:
+              (merged.confirmation as string | null) ?? pd.stay.confirmation,
+            price:
+              (merged.price as number | null) ??
+              (pd.stay.price ?? null),
+            currency:
+              (merged.currency as string | null) ?? pd.stay.currency,
+            country_code: pd.stay.country_code ?? null,
+            lat: (merged.lat as number | null) ?? null,
+            lon: (merged.lon as number | null) ?? null,
+            booking_url: (merged.booking_url as string | null) ?? null,
+          },
+          destId
+        );
       } catch (e) {
         console.error("[commit] createEventsForStay:", e);
       }
@@ -238,7 +270,10 @@ async function commitStay(
   //
   // Матчинг по приоритету:
   //   1) confirmation (точный идентификатор брони)
-  //   2) check_in (дата заезда в поездке уникальна почти всегда)
+  //   2) check_in (полный timestamp — обычно уникален в рамках поездки)
+  //   3) дата check_in + совпадение нормализованного адреса
+  //      (спасает, когда Gemini извлёк разные названия/коды из
+  //      двух писем Airbnb на одну и ту же бронь).
   //
   // Если нашли существующий stay: дозаполняем в нём null-поля из
   // нового документа, связываем текущий document_id как дополнительный
@@ -246,28 +281,7 @@ async function commitStay(
   // второй документ parsed и возвращаем id первого. Таким образом в
   // UI бюджета и таймлайне остаётся одна строка, а оба документа
   // видны в /docs и ссылаются на один stay.
-  let duplicate: { id: string } | null = null;
-  if (s.confirmation) {
-    const { data: dup } = await admin
-      .from("stays")
-      .select("id")
-      .eq("trip_id", tripId)
-      .eq("confirmation", s.confirmation)
-      .limit(1)
-      .maybeSingle();
-    duplicate = (dup as { id: string } | null) ?? null;
-  }
-  if (!duplicate && s.check_in) {
-    const { data: dup } = await admin
-      .from("stays")
-      .select("id")
-      .eq("trip_id", tripId)
-      .eq("check_in", s.check_in)
-      .limit(1)
-      .maybeSingle();
-    duplicate = (dup as { id: string } | null) ?? null;
-  }
-
+  const duplicate = await findDuplicateStay(admin, tripId, s);
   if (duplicate) {
     return await mergeStay(admin, duplicate.id, docId, s);
   }
@@ -286,6 +300,12 @@ async function commitStay(
     destinationId = (dest as { id: string } | null)?.id ?? null;
   }
 
+  // Попробуем сразу выписать booking_url из confirmation: Airbnb
+  // коды (HM+8 символов) и Booking (10 цифр) мы распознаём, остальное
+  // — null. Пользователь позже сможет поправить вручную.
+  const bookingUrl =
+    detectStayProvider(s.confirmation)?.url ?? null;
+
   const { data, error } = await admin
     .from("stays")
     .insert({
@@ -301,6 +321,7 @@ async function commitStay(
       confirmation: s.confirmation,
       price: s.price,
       currency: s.currency,
+      booking_url: bookingUrl,
       raw: s,
     })
     .select("id")
@@ -315,6 +336,78 @@ async function commitStay(
     .eq("id", docId);
 
   return { ok: true, kind: "stay", rowId: (data as { id: string }).id, created: true };
+}
+
+/**
+ * Normalize an address for dedup comparison. Lowercases, strips
+ * punctuation and whitespace, drops the country/postal tail so that
+ * "3 Šetalište Kapetana Iva Vizina, Tivat, Opština Tivat 85320"
+ * and "3 Šetalište Kapetana Iva Vizina, Тиват" match.
+ */
+function normalizeAddress(addr: string | null | undefined): string {
+  if (!addr) return "";
+  return addr
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+    .replace(/[\d]{4,}/g, "") // drop postal codes
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .trim();
+}
+
+function checkInDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+async function findDuplicateStay(
+  admin: SupabaseClient,
+  tripId: string,
+  s: StayFields
+): Promise<{ id: string } | null> {
+  if (s.confirmation) {
+    const { data: dup } = await admin
+      .from("stays")
+      .select("id")
+      .eq("trip_id", tripId)
+      .eq("confirmation", s.confirmation)
+      .limit(1)
+      .maybeSingle();
+    if (dup) return dup as { id: string };
+  }
+  if (s.check_in) {
+    const { data: dup } = await admin
+      .from("stays")
+      .select("id")
+      .eq("trip_id", tripId)
+      .eq("check_in", s.check_in)
+      .limit(1)
+      .maybeSingle();
+    if (dup) return dup as { id: string };
+  }
+
+  // Финальный запасной матч: дата заезда + совпадение нормализованного
+  // адреса. Берём все stays поездки — их обычно единицы; сравнение
+  // построчно на клиенте дешевле, чем SQL-нормализация адреса.
+  const wantDate = checkInDatePart(s.check_in);
+  const wantAddr = normalizeAddress(s.address);
+  if (wantDate && wantAddr) {
+    const { data: rows } = await admin
+      .from("stays")
+      .select("id,address,check_in")
+      .eq("trip_id", tripId);
+    for (const row of (rows ?? []) as Array<{
+      id: string;
+      address: string | null;
+      check_in: string | null;
+    }>) {
+      if (checkInDatePart(row.check_in) !== wantDate) continue;
+      if (normalizeAddress(row.address) !== wantAddr) continue;
+      return { id: row.id };
+    }
+  }
+  return null;
 }
 
 async function mergeStay(
