@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUsername } from "@/lib/auth/current-user";
+import { rebuildTripEvents } from "@/lib/ingest/rebuild";
 
 const EVENT_KINDS = [
   "meal",
@@ -345,4 +346,27 @@ export async function updateDayMetaAction(
 
   revalidatePath(`/trips/${slug}/days`);
   revalidatePath(`/trips/${slug}/days/${dayNumber}`);
+}
+
+/**
+ * Rebuild timeline events for a trip from the UI. Dedupes duplicate
+ * stays, regenerates events with fresh enrichment (map preview,
+ * booking URL, airline/airport action buttons) and refreshes each
+ * day's auto-generated "краткое описание".
+ *
+ * Uses the same core as the bearer-token API route, just auth'd via
+ * the session cookie. Users in the cloud preview / production can
+ * trigger it without a terminal.
+ */
+export async function rebuildTimelineAction(slug: string) {
+  const username = await getCurrentUsername();
+  if (!username) return;
+  const admin = createAdminClient();
+  try {
+    await rebuildTripEvents(admin, slug);
+  } catch (e) {
+    console.error("[rebuildTimelineAction]", e);
+  }
+  revalidatePath(`/trips/${slug}`);
+  revalidatePath(`/trips/${slug}/days`);
 }
