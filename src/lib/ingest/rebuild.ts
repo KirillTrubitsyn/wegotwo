@@ -150,7 +150,7 @@ export async function rebuildTripEvents(
     const extended = await admin
       .from("stays")
       .select(
-        "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+        "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url,map_url"
       )
       .eq("trip_id", trip.id);
     if (extended.error) {
@@ -184,12 +184,14 @@ export async function rebuildTripEvents(
     lat: number | null;
     lon: number | null;
     booking_url: string | null;
+    map_url: string | null;
   };
   for (const raw of stayRows) {
     const r = {
       ...raw,
       booking_url:
         (raw.booking_url as string | null | undefined) ?? null,
+      map_url: (raw.map_url as string | null | undefined) ?? null,
     } as StayRow;
     let bookingUrl = r.booking_url;
     if (!bookingUrl) {
@@ -214,6 +216,7 @@ export async function rebuildTripEvents(
       lat: number | null;
       lon: number | null;
       booking_url: string | null;
+      map_url: string | null;
     } = {
       title: r.title,
       address: r.address,
@@ -228,6 +231,7 @@ export async function rebuildTripEvents(
       lat: r.lat,
       lon: r.lon,
       booking_url: bookingUrl,
+      map_url: r.map_url,
     };
     try {
       stayEvents += await createEventsForStay(

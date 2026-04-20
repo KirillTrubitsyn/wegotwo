@@ -26,6 +26,7 @@ import type {
   ExpenseFields,
 } from "@/lib/gemini/schema";
 import { mapEmbedUrl, mapSearchUrl } from "@/lib/travel/maps";
+import { parseGoogleMapsCoords } from "@/lib/travel/gmaps-url";
 import { detectStayProvider } from "@/lib/travel/airbnb";
 import { lookupAirline } from "@/lib/travel/airlines";
 import { lookupAirport } from "@/lib/travel/airports";
@@ -472,6 +473,7 @@ export async function createEventsForStay(
     lat?: number | null;
     lon?: number | null;
     booking_url?: string | null;
+    map_url?: string | null;
   },
   destinationId: string | null
 ): Promise<number> {
@@ -481,9 +483,13 @@ export async function createEventsForStay(
 
   const nameLabel = s.title?.trim() || "Проживание";
   const address = s.address ?? null;
-  const lat = s.lat ?? null;
-  const lon = s.lon ?? null;
-  const mapUrl = mapSearchUrl(address, lat, lon);
+  // Если пользователь вручную задал ссылку на Google Maps, берём
+  // координаты из неё (точный пин POI). Иначе используем lat/lon
+  // из документа бронирования, иначе — адрес строкой.
+  const parsedCoords = parseGoogleMapsCoords(s.map_url ?? null);
+  const lat = s.lat ?? parsedCoords?.lat ?? null;
+  const lon = s.lon ?? parsedCoords?.lon ?? null;
+  const mapUrl = s.map_url ?? mapSearchUrl(address, lat, lon);
   const mapEmbed = mapEmbedUrl(address, lat, lon);
   const provider =
     (s.booking_url && { label: "Бронирование", url: s.booking_url }) ||

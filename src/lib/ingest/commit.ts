@@ -102,7 +102,7 @@ export async function commitParsedDocument(
       const { data: stay } = await admin
         .from("stays")
         .select(
-          "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+          "id,document_id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url,map_url"
         )
         .eq("id", res.rowId)
         .maybeSingle();
@@ -159,6 +159,7 @@ export async function commitParsedDocument(
             lat: (merged.lat as number | null) ?? null,
             lon: (merged.lon as number | null) ?? null,
             booking_url: (merged.booking_url as string | null) ?? null,
+            map_url: (merged.map_url as string | null) ?? null,
           },
           destId
         );
