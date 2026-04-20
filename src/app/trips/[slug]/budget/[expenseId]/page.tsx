@@ -8,6 +8,7 @@ import {
   type ExpenseActionState,
 } from "../actions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -162,20 +163,16 @@ export default async function EditExpensePage({
           }}
         />
 
-        <form
-          action={async () => {
+        <ConfirmDeleteButton
+          perform={async () => {
             "use server";
             await deleteExpenseAction(slug, expenseId);
             redirect(`/trips/${slug}/budget`);
           }}
-        >
-          <button
-            type="submit"
-            className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
-          >
-            Удалить расход
-          </button>
-        </form>
+          label="Удалить расход"
+          confirmText="Расход будет удалён без возможности восстановить. Введите код доступа."
+          className="w-full bg-white border border-accent/20 text-accent rounded-btn py-[12px] text-[14px] font-medium active:bg-red-lt"
+        />
       </div>
     </>
   );

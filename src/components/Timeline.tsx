@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { reorderEventAction, deleteEventAction } from "@/app/trips/[slug]/days/actions";
 import EventDescription from "@/components/EventDescription";
+import EventActionsMenu from "@/components/EventActionsMenu";
 
 export type TimelineLink = {
   label: string;
@@ -253,12 +253,6 @@ export default function Timeline({
               )}
               {!readOnly && (
                 <>
-                  <Link
-                    href={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
-                    className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-black/10 text-text-sec hover:bg-bg-surface"
-                  >
-                    Изменить
-                  </Link>
                   {!isFirst && (
                     <form
                       action={async () => {
@@ -301,19 +295,13 @@ export default function Timeline({
                       </button>
                     </form>
                   )}
-                  <form
-                    action={async () => {
+                  <EventActionsMenu
+                    editHref={`/trips/${slug}/days/${dayNumber}/events/${event.id}`}
+                    deletePerform={async () => {
                       "use server";
                       await deleteEventAction(slug, dayNumber, event.id);
                     }}
-                  >
-                    <button
-                      type="submit"
-                      className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium border border-accent/20 text-accent hover:bg-red-lt"
-                    >
-                      Удалить
-                    </button>
-                  </form>
+                  />
                 </>
               )}
             </div>

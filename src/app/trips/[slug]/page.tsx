@@ -11,6 +11,7 @@ import CityTabs, { type CityTab } from "@/components/CityTabs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { displayDayDetail } from "@/lib/ingest/day-detail";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -327,19 +328,15 @@ export default async function TripOverviewPage({
           </form>
         </div>
 
-        <form
-          action={async () => {
+        <ConfirmDeleteButton
+          perform={async () => {
             "use server";
             await deleteTripAction(trip.slug);
           }}
-        >
-          <button
-            type="submit"
-            className="w-full bg-white border border-accent/20 rounded-btn py-[12px] text-[13px] font-medium text-accent active:bg-red-lt"
-          >
-            Удалить поездку
-          </button>
-        </form>
+          label="Удалить поездку"
+          confirmText="Все дни, события, документы, фото и расходы поездки будут удалены без возможности восстановить. Введите код доступа."
+          className="w-full bg-white border border-accent/20 rounded-btn py-[12px] text-[13px] font-medium text-accent active:bg-red-lt"
+        />
       </div>
 
       <BottomNav slug={trip.slug} />
