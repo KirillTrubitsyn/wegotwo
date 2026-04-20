@@ -88,7 +88,7 @@ export default async function BudgetPage({
       .eq("trip_id", trip.id)
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false }),
-    resolveHeaderDestination(admin, trip.id),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
     admin
       .from("destinations")
       .select("id,name,flag_code,sort_order,date_from")

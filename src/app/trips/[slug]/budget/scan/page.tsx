@@ -38,7 +38,7 @@ export default async function ScanEntryPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
+  const stayCity = await resolveHeaderDestination(admin, trip.id, trip.primary_tz);
 
   const action = uploadReceiptAction.bind(null, slug);
 

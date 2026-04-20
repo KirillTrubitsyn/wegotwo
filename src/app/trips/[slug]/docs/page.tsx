@@ -60,7 +60,7 @@ export default async function DocsPage({
       .eq("trip_id", trip.id)
       .eq("archived", false)
       .order("created_at", { ascending: false }),
-    resolveHeaderDestination(admin, trip.id),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
   ]);
   const docs = (docData ?? []) as DocRow[];
 
