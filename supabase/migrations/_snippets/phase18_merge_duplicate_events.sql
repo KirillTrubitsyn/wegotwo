@@ -57,7 +57,7 @@ ranked as (
   select
     id, day_id, kind, title,
     row_number() over (
-      partition by day_id, kind, title
+      partition by day_id, kind, lower(regexp_replace(title, '\s+', ' ', 'g'))
       order by score desc, created_at asc
     ) as rnk,
     count(*) over (partition by day_id, kind, title) as cnt
@@ -69,7 +69,7 @@ dup_groups as (
     array_agg(id) filter (where rnk > 1)     as loser_ids
   from ranked
   where cnt > 1
-  group by day_id, kind, title
+  group by day_id, kind, lower(regexp_replace(title, '\s+', ' ', 'g'))
 ),
 loser_data as (
   select
@@ -179,7 +179,7 @@ ranked as (
   select
     id, day_id, kind, title,
     row_number() over (
-      partition by day_id, kind, title
+      partition by day_id, kind, lower(regexp_replace(title, '\s+', ' ', 'g'))
       order by score desc, created_at asc
     ) as rnk,
     count(*) over (partition by day_id, kind, title) as cnt
@@ -190,7 +190,7 @@ dup_groups as (
     array_agg(id) filter (where rnk > 1) as loser_ids
   from ranked
   where cnt > 1
-  group by day_id, kind, title
+  group by day_id, kind, lower(regexp_replace(title, '\s+', ' ', 'g'))
 )
 delete from public.events
 where id in (

@@ -322,20 +322,36 @@ function buildTicketButtons(event: TimelineEvent): TimelineAttachment[] {
 
 /**
  * Имя кнопки «🎫 …» для одного attachment'а. Цель:
- * — для Tripster-билета, где label взят из documents.title
- *   («Билет №30032-6377991»), не дублировать слово «Билет» и не
- *   таскать номер в подпись — кнопка просто «Билет»;
- * — для рейса с двумя посадочными, где label — имя пассажира
- *   («Kirill», «Marina»), показывать «Билет Kirill».
- *
- * Алгоритм: срезаем стартовый шум («Билет», «Ticket», «Посадочный»,
- * «Boarding pass») + разделители. Если остался только мусор (№, цифры,
- * пробелы) — кнопка «Билет». Иначе — «Билет {остаток}».
+ *   • для Tripster-билета (label = «Билет №30032-6377991») —
+ *     просто «Билет» без номера;
+ *   • для авиабилета с разметкой «клиент MR KIRILL TRUBITSYN» —
+ *     «Билет Trubitsyn» (только фамилия, Title Case);
+ *   • для произвольного короткого текста — «Билет {текст}».
  */
 function renderTicketLabel(label: string | null): string {
   if (!label) return "Билет";
   const trimmed = label.trim();
   if (!trimmed) return "Билет";
+
+  // Явная разметка пассажира в названии документа.
+  // Пример: «Квитанция электронного билета, 01 мая, клиент MR KIRILL TRUBITSYN»
+  // → фамилия = «TRUBITSYN» → Title Case → «Билет Trubitsyn».
+  const clientMatch = trimmed.match(
+    /(?:клиент|client|passenger|пассажир)[\s:.,-]+(.+)$/i
+  );
+  if (clientMatch) {
+    const rest = clientMatch[1]
+      .replace(/^(mr|mrs|ms|miss|dr|mr\.|mrs\.|ms\.|miss\.|dr\.)\s+/i, "")
+      .trim();
+    const parts = rest.split(/\s+/).filter(Boolean);
+    if (parts.length > 0) {
+      return `Билет ${toTitleCase(parts[parts.length - 1])}`;
+    }
+  }
+
+  // Срезаем стартовый шум («Билет/Ticket/Посадочный/Boarding pass») +
+  // разделители. Если после стрипа осталась только цифирь/№ — кнопка
+  // просто «Билет».
   const stripped = trimmed
     .replace(
       /^(билет|ticket|boarding[\s_-]*pass|посадочн\w*)[\s:№#\-–—.,/]*/i,
@@ -343,7 +359,16 @@ function renderTicketLabel(label: string | null): string {
     )
     .trim();
   if (!stripped || /^[№#\d\s\-–—.,/]+$/.test(stripped)) return "Билет";
+
+  // Если после стрипа всё равно длинный мусорный заголовок — лучше
+  // показать просто «Билет», чем кашу на всю ширину экрана.
+  if (stripped.length > 24) return "Билет";
   return `Билет ${stripped}`;
+}
+
+function toTitleCase(s: string): string {
+  if (!s) return "";
+  return s.charAt(0).toLocaleUpperCase("ru-RU") + s.slice(1).toLocaleLowerCase("ru-RU");
 }
 
 function linkChipClass(kind?: string | null): string {
