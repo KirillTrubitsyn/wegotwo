@@ -66,7 +66,7 @@ export default async function PhotosPage({
       .select("id,storage_path,thumbnail_path,taken_at,day_id,width,height")
       .eq("trip_id", trip.id)
       .order("taken_at", { ascending: true, nullsFirst: false }),
-    resolveHeaderDestination(admin, trip.id),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
   ]);
   const days = (dayData ?? []) as DayRow[];
   const dayById = new Map(days.map((d) => [d.id, d]));

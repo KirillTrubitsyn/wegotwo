@@ -78,7 +78,7 @@ export default async function DayDetailPage({
       .select("id,date,title,detail,badge")
       .eq("trip_id", trip.id)
       .order("date", { ascending: true }),
-    resolveHeaderDestination(admin, trip.id),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
   ]);
 
   const days = (daysData ?? []) as DayRow[];

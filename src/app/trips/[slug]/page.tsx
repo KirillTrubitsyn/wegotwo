@@ -88,7 +88,7 @@ export default async function TripOverviewPage({
       .eq("trip_id", trip.id)
       .in("type", ["stay", "home"])
       .order("sort_order", { ascending: true }),
-    resolveHeaderDestination(admin, trip.id),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
   ]);
 
   const allDays = (daysData ?? []) as Array<{

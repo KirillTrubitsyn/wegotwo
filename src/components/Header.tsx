@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useWeather } from "@/lib/hooks/useWeather";
@@ -80,6 +81,7 @@ export default function Header({
   }>({ weekday: "", date: "", time: "" });
   const [photoOpen, setPhotoOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => setMounted(true), []);
 
@@ -135,6 +137,25 @@ export default function Header({
   const chipClass = tripHasCoords
     ? s.light
     : "bg-blue-lt text-blue";
+
+  // Куда ведёт тап на чип погоды: полноценный экран прогноза.
+  const weatherHref = (() => {
+    const params = new URLSearchParams({
+      lat: String(weatherLat),
+      lon: String(weatherLon),
+      tz: weatherTz,
+    });
+    if (tripHasCoords && trip?.clockLabel) {
+      params.set("label", trip.clockLabel);
+    } else if (!tripHasCoords) {
+      params.set("label", MSK_LABEL);
+    }
+    if (trip?.color) params.set("color", String(trip.color));
+    if (pathname && !pathname.startsWith("/weather")) {
+      params.set("back", pathname);
+    }
+    return `/weather?${params.toString()}`;
+  })();
 
   return (
     <header className="sticky top-0 z-[100] bg-white/[0.88] backdrop-blur-[24px] border-b border-black/[0.06] px-5 pt-[max(18px,env(safe-area-inset-top))] pb-4">
@@ -198,16 +219,17 @@ export default function Header({
         </div>
         <div className="flex items-center gap-[8px] flex-shrink-0">
           {weather && (
-            <div
-              className={`flex items-center gap-[4px] ${chipClass} px-[10px] py-[4px] rounded-[10px]`}
-              aria-label={`Погода ${tripHasCoords ? "в поездке" : "в Москве"}`}
+            <Link
+              href={weatherHref}
+              className={`flex items-center gap-[4px] ${chipClass} px-[10px] py-[4px] rounded-[10px] active:opacity-80 transition-opacity`}
+              aria-label={`Погода ${tripHasCoords ? "в поездке" : "в Москве"} — открыть прогноз на неделю`}
             >
               <span className="text-[16px] leading-none">{weather.icon}</span>
               <span className="font-mono text-[15px] font-bold leading-none">
                 {weather.temperature > 0 ? "+" : ""}
                 {weather.temperature}°
               </span>
-            </div>
+            </Link>
           )}
           <button
             type="button"
