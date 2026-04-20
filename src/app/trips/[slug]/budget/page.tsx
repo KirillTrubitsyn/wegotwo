@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { convert } from "@/lib/rates/cbr";
+import { prefetchRates, rateKey } from "@/lib/rates/cbr";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import BudgetBody, {
   type CurrencyView,
@@ -75,23 +75,41 @@ export default async function BudgetPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: expData } = await admin
-    .from("expenses")
-    .select(
-      "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base"
-    )
-    .eq("trip_id", trip.id)
-    .order("occurred_on", { ascending: false })
-    .order("created_at", { ascending: false });
+  // Параллельно с основным запросом тянем сразу и header-контекст:
+  // одна точка wait вместо двух последовательных.
+  const [{ data: expData }, stayCity] = await Promise.all([
+    admin
+      .from("expenses")
+      .select(
+        "id,occurred_on,category,merchant,description,amount_original,currency_original,amount_base,currency_base"
+      )
+      .eq("trip_id", trip.id)
+      .order("occurred_on", { ascending: false })
+      .order("created_at", { ascending: false }),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
 
   const expenses = (expData ?? []) as ExpenseRow[];
 
   const DISPLAY_CURRENCIES = buildDisplayCurrencies(trip.base_currency);
 
-  // Precompute per-display-currency amounts for every expense, reusing
-  // the CBR cache. We start from `amount_original` / `currency_original`
-  // on `occurred_on` so we pick up fresh rates rather than cascading
-  // through the trip's base currency.
+  // Собираем все (date, from, to) тройки, которые нам нужны, чтобы
+  // одним батч-запросом в exchange_rates получить все курсы разом.
+  // Раньше тут был цикл await convert(...) внутри цикла — до 120
+  // последовательных round-trip'ов. Теперь один batch + параллельные
+  // fetch'и ЦБ для промахов кэша.
+  const triples: { date: string; from: string; to: string }[] = [];
+  for (const e of expenses) {
+    const from = e.currency_original;
+    const date = e.occurred_on;
+    for (const target of DISPLAY_CURRENCIES) {
+      if (from === target) continue;
+      if (e.currency_base === target) continue;
+      triples.push({ date, from, to: target });
+    }
+  }
+  const rates = await prefetchRates(admin, triples);
+
   const views: Record<DisplayCurrency, CurrencyView> = {};
   for (const c of DISPLAY_CURRENCIES) {
     views[c] = { total: 0, byCategory: {}, amounts: {} };
@@ -111,12 +129,12 @@ export default async function BudgetPage({
       } else if (e.currency_base === target) {
         amt = amtBase;
       } else {
-        const conv = await convert(admin, amtOrig, from, target, date);
-        if (conv) {
-          amt = conv.amount;
+        const r = rates.get(rateKey(date, from, target));
+        if (r) {
+          amt = Math.round(amtOrig * r.rate * 100) / 100;
         } else {
           missingRates = true;
-          amt = 0; // skip contribution; row will fall back to original
+          amt = 0;
         }
       }
       const v = views[target];
@@ -137,7 +155,6 @@ export default async function BudgetPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   const expensesMeta: ExpenseMeta[] = expenses.map((e) => ({
     id: e.id,

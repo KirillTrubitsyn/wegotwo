@@ -71,19 +71,23 @@ export default async function TripDaysPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: daysData } = await admin
-    .from("days")
-    .select("id,date,title,detail,badge")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+  // Параллелим три независимых запроса после trip:
+  // days, events (для счётчиков), header-город.
+  const [
+    { data: daysData },
+    { data: eventsData },
+    stayCity,
+  ] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date,title,detail,badge")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    admin.from("events").select("day_id").eq("trip_id", trip.id),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
 
   const days = (daysData ?? []) as DayRow[];
-
-  // Fetch event counts for all days in one query
-  const { data: eventsData } = await admin
-    .from("events")
-    .select("day_id")
-    .eq("trip_id", trip.id);
 
   const counts = new Map<string, number>();
   for (const r of (eventsData ?? []) as Array<{ day_id: string }>) {
@@ -92,7 +96,6 @@ export default async function TripDaysPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isActive = phase(trip) !== "past";
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   return (
     <>

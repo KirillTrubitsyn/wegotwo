@@ -107,23 +107,27 @@ export default async function DestinationPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: destData } = await admin
-    .from("destinations")
-    .select(
-      "id,name,country,flag_code,lat,lon,timezone,date_from,date_to,type,photo_path,sort_order"
-    )
-    .eq("id", destId)
-    .eq("trip_id", trip.id)
-    .maybeSingle();
+  // Параллелим destData (основной) с tabDestsRaw (для табов городов):
+  // обе зависят только от trip.id.
+  const [{ data: destData }, { data: tabDestsRaw }] = await Promise.all([
+    admin
+      .from("destinations")
+      .select(
+        "id,name,country,flag_code,lat,lon,timezone,date_from,date_to,type,photo_path,sort_order"
+      )
+      .eq("id", destId)
+      .eq("trip_id", trip.id)
+      .maybeSingle(),
+    admin
+      .from("destinations")
+      .select("id,name,flag_code,type,sort_order,date_from")
+      .eq("trip_id", trip.id)
+      .in("type", ["stay", "home"])
+      .order("sort_order", { ascending: true }),
+  ]);
   if (!destData) notFound();
   const dest = destData as Destination;
 
-  const { data: tabDestsRaw } = await admin
-    .from("destinations")
-    .select("id,name,flag_code,type,sort_order,date_from")
-    .eq("trip_id", trip.id)
-    .in("type", ["stay", "home"])
-    .order("sort_order", { ascending: true });
   const cityTabs: CityTab[] = (tabDestsRaw ?? []).map((t) => ({
     id: t.id as string,
     name: t.name as string,
@@ -133,24 +137,26 @@ export default async function DestinationPage({
     dateFrom: (t.date_from as string | null) ?? null,
   }));
 
-  const { data: stayData } = await admin
-    .from("stays")
-    .select(
-      "id,destination_id,title,address,host,host_phone,confirmation,price,currency,raw"
-    )
-    .eq("trip_id", trip.id)
-    .eq("destination_id", dest.id)
-    .maybeSingle();
+  // Параллелим stay (по dest.id) и signed URL обложки (по dest.photo_path).
+  const coverPromise: Promise<string | null> = dest.photo_path
+    ? admin.storage
+        .from("photos")
+        .createSignedUrl(dest.photo_path, 3600)
+        .then((r) => r.data?.signedUrl ?? null)
+    : Promise.resolve(null);
+  const [{ data: stayData }, coverUrl] = await Promise.all([
+    admin
+      .from("stays")
+      .select(
+        "id,destination_id,title,address,host,host_phone,confirmation,price,currency,raw"
+      )
+      .eq("trip_id", trip.id)
+      .eq("destination_id", dest.id)
+      .maybeSingle(),
+    coverPromise,
+  ]);
   const stay = (stayData ?? null) as StayRow | null;
   const raw: StayRaw = stay?.raw ?? {};
-
-  let coverUrl: string | null = null;
-  if (dest.photo_path) {
-    const { data: signed } = await admin.storage
-      .from("photos")
-      .createSignedUrl(dest.photo_path, 3600);
-    coverUrl = signed?.signedUrl ?? null;
-  }
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;

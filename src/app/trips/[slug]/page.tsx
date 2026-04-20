@@ -64,11 +64,33 @@ export default async function TripOverviewPage({
 
   // Preview up to 3 upcoming/current days with event counts.
   const today = new Date().toISOString().slice(0, 10);
-  const { data: daysData } = await admin
-    .from("days")
-    .select("id,date,title,detail,badge")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+
+  // Параллелим все независимые запросы после получения trip:
+  // days, events, destinations, header-контекст. Раньше шли
+  // последовательно — четыре round-trip'а подряд.
+  const [
+    { data: daysData },
+    { data: evtRows },
+    { data: destRows },
+    stayCity,
+  ] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date,title,detail,badge")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    admin.from("events").select("day_id").eq("trip_id", trip.id),
+    admin
+      .from("destinations")
+      .select(
+        "id,name,country,flag_code,type,date_from,date_to,photo_path,sort_order"
+      )
+      .eq("trip_id", trip.id)
+      .in("type", ["stay", "home"])
+      .order("sort_order", { ascending: true }),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
+
   const allDays = (daysData ?? []) as Array<{
     id: string;
     date: string;
@@ -77,26 +99,13 @@ export default async function TripOverviewPage({
     badge: string | null;
   }>;
 
-  const { data: evtRows } = await admin
-    .from("events")
-    .select("day_id")
-    .eq("trip_id", trip.id);
   const evtCounts = new Map<string, number>();
   for (const r of (evtRows ?? []) as Array<{ day_id: string }>) {
     evtCounts.set(r.day_id, (evtCounts.get(r.day_id) ?? 0) + 1);
   }
 
-  // Destinations (stay + home) — used both for the city tabs at the top
-  // and for the list of city tiles below. We show tiles only for stays
-  // that carry a cover photo.
-  const { data: destRows } = await admin
-    .from("destinations")
-    .select(
-      "id,name,country,flag_code,type,date_from,date_to,photo_path,sort_order"
-    )
-    .eq("trip_id", trip.id)
-    .in("type", ["stay", "home"])
-    .order("sort_order", { ascending: true });
+  // Destinations (stay + home) — используем для табов городов сверху
+  // и для плиток городов ниже. Плитки рисуются только для stays с фото.
   const allStayHome = (destRows ?? []) as Array<{
     id: string;
     name: string;
@@ -135,8 +144,6 @@ export default async function TripOverviewPage({
         )
     );
   }
-
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   const previewStart = Math.max(
     0,

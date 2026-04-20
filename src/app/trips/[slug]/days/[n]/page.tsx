@@ -71,11 +71,15 @@ export default async function DayDetailPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: daysData } = await admin
-    .from("days")
-    .select("id,date,title,detail,badge")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+  // Параллелим days и резолв города заголовка — они независимы.
+  const [{ data: daysData }, stayCity] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date,title,detail,badge")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
 
   const days = (daysData ?? []) as DayRow[];
   const day = days[dayNumber - 1];
@@ -133,7 +137,6 @@ export default async function DayDetailPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   const dateLabel = format(parseISO(day.date), "EEEE, d MMMM yyyy", {
     locale: ru,

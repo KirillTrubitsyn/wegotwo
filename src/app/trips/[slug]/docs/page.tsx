@@ -52,12 +52,16 @@ export default async function DocsPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: docData } = await admin
-    .from("documents")
-    .select("id,kind,title,size_bytes,mime,created_at")
-    .eq("trip_id", trip.id)
-    .eq("archived", false)
-    .order("created_at", { ascending: false });
+  // Параллелим docs и резолв города заголовка — независимые запросы.
+  const [{ data: docData }, stayCity] = await Promise.all([
+    admin
+      .from("documents")
+      .select("id,kind,title,size_bytes,mime,created_at")
+      .eq("trip_id", trip.id)
+      .eq("archived", false)
+      .order("created_at", { ascending: false }),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
   const docs = (docData ?? []) as DocRow[];
 
   // Group by kind in the order defined in DOC_KIND_LABELS.
@@ -73,7 +77,6 @@ export default async function DocsPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   return (
     <>

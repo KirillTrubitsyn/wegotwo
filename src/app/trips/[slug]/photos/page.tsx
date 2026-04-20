@@ -53,21 +53,22 @@ export default async function PhotosPage({
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: dayData } = await admin
-    .from("days")
-    .select("id,date")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+  // Параллелим days, photos и резолв города заголовка.
+  const [{ data: dayData }, { data: photoData }, stayCity] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    admin
+      .from("photos")
+      .select("id,storage_path,thumbnail_path,taken_at,day_id,width,height")
+      .eq("trip_id", trip.id)
+      .order("taken_at", { ascending: true, nullsFirst: false }),
+    resolveHeaderDestination(admin, trip.id),
+  ]);
   const days = (dayData ?? []) as DayRow[];
   const dayById = new Map(days.map((d) => [d.id, d]));
-
-  const { data: photoData } = await admin
-    .from("photos")
-    .select(
-      "id,storage_path,thumbnail_path,taken_at,day_id,width,height"
-    )
-    .eq("trip_id", trip.id)
-    .order("taken_at", { ascending: true, nullsFirst: false });
   const photos = (photoData ?? []) as PhotoRow[];
 
   // Batch sign URLs for thumbnails.
@@ -99,7 +100,6 @@ export default async function PhotosPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = Boolean(trip.archived_at) || trip.date_to < today;
-  const stayCity = await resolveHeaderDestination(admin, trip.id);
 
   return (
     <>
