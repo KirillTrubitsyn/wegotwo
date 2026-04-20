@@ -133,6 +133,22 @@ async function findDay(
   return (data as { id: string } | null)?.id ?? null;
 }
 
+type TourExtraRow = {
+  label: string;
+  amount: number | null;
+  currency: string | null;
+};
+
+type TourDetailsRow = {
+  guide_name?: string | null;
+  guide_phone?: string | null;
+  paid_amount?: number | null;
+  paid_currency?: string | null;
+  due_amount?: number | null;
+  due_currency?: string | null;
+  extras?: TourExtraRow[];
+};
+
 type EventRow = {
   trip_id: string;
   day_id: string;
@@ -151,6 +167,9 @@ type EventRow = {
   booking_url: string | null;
   map_embed_url: string | null;
   links: EventLink[];
+  description?: string | null;
+  tour_details?: TourDetailsRow | null;
+  ticket_url?: string | null;
 };
 
 /**
@@ -192,6 +211,15 @@ async function upsertEvent(
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
+    // Phase 16 tour fields: only PATCH the structured tour_details /
+    // ticket_url; we never overwrite a non-empty `description` with
+    // an empty one, because the long-form description is usually
+    // filled by the user manually (scraped from Tripster) and the
+    // ingest layer won't know how to regenerate it.
+    if (row.ticket_url !== undefined) patch.ticket_url = row.ticket_url;
+    if (row.tour_details !== undefined) patch.tour_details = row.tour_details;
+    if (row.description != null && row.description !== "")
+      patch.description = row.description;
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);
@@ -212,7 +240,16 @@ async function upsertEvent(
  * раз без этих полей — чтобы не ронять весь ingest из-за незнакомой
  * колонки. Аналогично для update.
  */
-const PHASE14_COLUMNS = ["booking_url", "map_embed_url", "links"] as const;
+const EXTENDED_COLUMNS = [
+  // phase14
+  "booking_url",
+  "map_embed_url",
+  "links",
+  // phase16 (tours)
+  "description",
+  "tour_details",
+  "ticket_url",
+] as const;
 
 async function insertEventCompat(
   admin: SupabaseClient,
@@ -220,9 +257,9 @@ async function insertEventCompat(
 ): Promise<{ error?: string }> {
   const { error } = await admin.from("events").insert(row);
   if (!error) return {};
-  if (isUnknownColumnError(error.message, PHASE14_COLUMNS)) {
+  if (isUnknownColumnError(error.message, EXTENDED_COLUMNS)) {
     const stripped: Record<string, unknown> = { ...row };
-    for (const c of PHASE14_COLUMNS) delete stripped[c];
+    for (const c of EXTENDED_COLUMNS) delete stripped[c];
     const { error: retry } = await admin.from("events").insert(stripped);
     if (!retry) return {};
     return { error: retry.message };
@@ -237,9 +274,9 @@ async function updateEventCompat(
 ): Promise<{ error?: string }> {
   const { error } = await admin.from("events").update(patch).eq("id", id);
   if (!error) return {};
-  if (isUnknownColumnError(error.message, PHASE14_COLUMNS)) {
+  if (isUnknownColumnError(error.message, EXTENDED_COLUMNS)) {
     const stripped: Record<string, unknown> = { ...patch };
-    for (const c of PHASE14_COLUMNS) delete stripped[c];
+    for (const c of EXTENDED_COLUMNS) delete stripped[c];
     const { error: retry } = await admin
       .from("events")
       .update(stripped)
@@ -608,6 +645,21 @@ const ACTIVITY_CATEGORIES: Record<
   transport: { kind: "transfer", emoji: "🚕" },
 };
 
+/**
+ * Склеивает локальный `YYYY-MM-DD` и `HH:MM` в trip-TZ и возвращает
+ * UTC ISO. Использует уже существующий normalizeDateTime: собираем
+ * наивную строку и пропускаем через него.
+ */
+function combineDateTimeIso(
+  date: string,
+  hhmm: string | null | undefined,
+  tz: string
+): string | null {
+  if (!hhmm || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
+  const res = normalizeDateTime(`${date}T${hhmm}`, tz);
+  return res?.iso ?? null;
+}
+
 export async function createEventsForExpense(
   admin: SupabaseClient,
   trip: TripCtx,
@@ -621,6 +673,49 @@ export async function createEventsForExpense(
   if (!dayId) return 0;
 
   const title = e.description?.trim() || e.merchant?.trim() || "Событие";
+
+  // Экскурсионный билет (Tripster и т.п.): формируем tour_details из
+  // структурированных полей, достаём ticket_url, ставим website.
+  const isTourTicket = e.category === "tours" || e.category === "activities";
+  const ticketUrl = isTourTicket ? e.tour_url ?? null : null;
+  const guideExtras = (e.extras ?? []).filter((x) => x && x.label);
+  const tourDetails: TourDetailsRow | null = isTourTicket
+    ? {
+        guide_name: e.guide_name ?? null,
+        guide_phone: e.guide_phone ?? null,
+        paid_amount: e.paid_amount ?? null,
+        paid_currency: e.paid_currency ?? null,
+        due_amount: e.due_amount ?? null,
+        due_currency: e.due_currency ?? null,
+        extras: guideExtras.map((x) => ({
+          label: x.label as string,
+          amount: x.amount ?? null,
+          currency: x.currency ?? null,
+        })),
+      }
+    : null;
+  // Если ни одно поле не заполнено — не сохраняем пустой объект,
+  // чтобы карточка не рендерила пустой блок «Гид: —».
+  const hasAnyTourField =
+    tourDetails &&
+    (tourDetails.guide_name ||
+      tourDetails.guide_phone ||
+      tourDetails.paid_amount != null ||
+      tourDetails.due_amount != null ||
+      (tourDetails.extras && tourDetails.extras.length > 0));
+
+  // Время начала/окончания экскурсии (HH:MM + occurred_on + trip TZ).
+  const startAt = combineDateTimeIso(
+    e.occurred_on,
+    e.start_time,
+    trip.primary_tz
+  );
+  const endAt = combineDateTimeIso(
+    e.occurred_on,
+    e.end_time,
+    trip.primary_tz
+  );
+
   const notes = e.merchant && e.description ? e.merchant : null;
 
   const ok = await upsertEvent(admin, {
@@ -628,19 +723,21 @@ export async function createEventsForExpense(
     day_id: dayId,
     destination_id: null,
     kind: kindInfo.kind,
-    start_at: null,
-    end_at: null,
+    start_at: startAt,
+    end_at: endAt,
     title,
     notes,
     emoji: kindInfo.emoji,
     address: null,
     sort_order: 10,
     map_url: null,
-    website: null,
-    phone: null,
+    website: ticketUrl,
+    phone: e.guide_phone ?? null,
     booking_url: null,
     map_embed_url: null,
     links: [],
+    ticket_url: ticketUrl,
+    tour_details: hasAnyTourField ? tourDetails : null,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;

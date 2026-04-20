@@ -154,6 +154,16 @@ export const ExpenseItem = z.object({
 });
 export type ExpenseItem = z.infer<typeof ExpenseItem>;
 
+// Доп. расходы по экскурсии: вход в парк, катер, дегустация и т.п.
+// Заполняются, когда в билете явно разделены «предоплата» и
+// «оплата на месте / дополнительно».
+export const TourExtra = z.object({
+  label: OptStr,
+  amount: OptNum,
+  currency: OptCurrency,
+});
+export type TourExtra = z.infer<typeof TourExtra>;
+
 export const ExpenseFields = z.object({
   merchant: OptStr,
   description: OptStr,
@@ -173,6 +183,36 @@ export const ExpenseFields = z.object({
   // Позиции ресторанного чека. Пусто для нересторанных расходов.
   items: z
     .union([z.array(ExpenseItem), z.null()])
+    .optional()
+    .transform((v) => (v == null ? [] : v)),
+  // Поля специфичные для экскурсий / туров (Tripster, GetYourGuide,
+  // ЧернокнижникЪ). Заполняются только когда документ — билет на
+  // экскурсию. Для ресторанного чека все эти поля null.
+  tour_url: OptStr,
+  guide_name: OptStr,
+  guide_phone: OptStr,
+  paid_amount: OptNum,
+  paid_currency: OptCurrency,
+  due_amount: OptNum,
+  due_currency: OptCurrency,
+  start_time: z
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((v) => {
+      if (v == null) return null;
+      const t = v.trim();
+      return /^\d{2}:\d{2}$/.test(t) ? t : null;
+    }),
+  end_time: z
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((v) => {
+      if (v == null) return null;
+      const t = v.trim();
+      return /^\d{2}:\d{2}$/.test(t) ? t : null;
+    }),
+  extras: z
+    .union([z.array(TourExtra), z.null()])
     .optional()
     .transform((v) => (v == null ? [] : v)),
 });
@@ -299,6 +339,27 @@ export const GEMINI_RESPONSE_SCHEMA = {
             properties: {
               description: { type: "STRING", nullable: true },
               amount: { type: "NUMBER", nullable: true },
+            },
+          },
+        },
+        tour_url: { type: "STRING", nullable: true },
+        guide_name: { type: "STRING", nullable: true },
+        guide_phone: { type: "STRING", nullable: true },
+        paid_amount: { type: "NUMBER", nullable: true },
+        paid_currency: { type: "STRING", nullable: true },
+        due_amount: { type: "NUMBER", nullable: true },
+        due_currency: { type: "STRING", nullable: true },
+        start_time: { type: "STRING", nullable: true },
+        end_time: { type: "STRING", nullable: true },
+        extras: {
+          type: "ARRAY",
+          nullable: true,
+          items: {
+            type: "OBJECT",
+            properties: {
+              label: { type: "STRING", nullable: true },
+              amount: { type: "NUMBER", nullable: true },
+              currency: { type: "STRING", nullable: true },
             },
           },
         },
