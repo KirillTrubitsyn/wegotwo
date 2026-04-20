@@ -11,11 +11,12 @@ import Timeline, {
   type TimelineAttachment,
   type TourDetails,
 } from "@/components/Timeline";
+import DayActionsMenu from "@/components/DayActionsMenu";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { formatTimeInTz } from "@/lib/format-tz";
 import { displayDayDetail } from "@/lib/ingest/day-detail";
-import { updateDayMetaAction } from "../actions";
+import { deleteEventAction, updateDayMetaAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -380,60 +381,33 @@ export default async function DayDetailPage({
       />
 
       <div className="px-5 pb-28 pt-4 space-y-5">
-        {/* Day meta form */}
-        <form
-          action={async (fd: FormData) => {
-            "use server";
-            await updateDayMetaAction(slug, dayNumber, fd);
-          }}
-          className="bg-white rounded-card shadow-card p-4 space-y-3"
-        >
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold mb-1">
-              Заголовок дня
-            </label>
-            <input
-              name="title"
-              defaultValue={day.title ?? ""}
-              placeholder={`День ${dayNumber}`}
-              maxLength={120}
-              className="w-full bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold mb-1">
-              Краткое описание
-            </label>
-            <input
-              name="detail"
-              defaultValue={displayDayDetail(day.detail) ?? ""}
-              placeholder="Например: перелёт Москва → Тиват, заселение"
-              maxLength={400}
-              className="w-full bg-bg-surface rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:bg-white focus:outline-none"
-            />
-          </div>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              className="bg-text-main text-white rounded-btn px-4 py-[10px] text-[13px] font-medium active:opacity-85"
-            >
-              Сохранить
-            </button>
-          </div>
-        </form>
-
         {/* Timeline */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold">
               Таймлайн
             </h2>
-            <Link
-              href={`/trips/${trip.slug}/days/${dayNumber}/events/new`}
-              className="text-[12px] font-medium text-accent"
-            >
-              + Событие
-            </Link>
+            <DayActionsMenu
+              slug={trip.slug}
+              dayNumber={dayNumber}
+              dayTitle={day.title ?? ""}
+              dayDetail={displayDayDetail(day.detail) ?? ""}
+              dayNumberLabel={`День ${dayNumber}`}
+              events={events.map((e) => ({
+                id: e.id,
+                title: e.title,
+                time: e.start_time,
+              }))}
+              updateDayMeta={async (fd: FormData) => {
+                "use server";
+                await updateDayMetaAction(slug, dayNumber, fd);
+              }}
+              deleteEvent={async (eventId: string) => {
+                "use server";
+                await deleteEventAction(slug, dayNumber, eventId);
+              }}
+              readOnly={isPast}
+            />
           </div>
           <Timeline
             slug={trip.slug}
