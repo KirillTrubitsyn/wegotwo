@@ -232,20 +232,23 @@ export default function Timeline({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-gold-lt border border-gold/30 text-[#8a6200] hover:bg-gold/25"
                 >
-                  <span>🔑</span> Бронь ↗
+                  <span>🔑</span>{" "}
+                  {getStayProviderLabel(event.booking_url) ?? "Бронь"} ↗
                 </a>
               )}
-              {event.links?.map((l, idx) => (
-                <a
-                  key={`${l.url}-${idx}`}
-                  href={l.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={linkChipClass(l.kind)}
-                >
-                  <span>{l.icon ?? "🔗"}</span> {l.label}
-                </a>
-              ))}
+              {event.links
+                ?.filter((l) => l.url !== event.booking_url)
+                .map((l, idx) => (
+                  <a
+                    key={`${l.url}-${idx}`}
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={linkChipClass(l.kind)}
+                  >
+                    <span>{l.icon ?? "🔗"}</span> {l.label}
+                  </a>
+                ))}
               {event.map_url && !event.map_embed_url && (
                 <a
                   href={event.map_url}
@@ -369,6 +372,18 @@ function renderTicketLabel(label: string | null): string {
 function toTitleCase(s: string): string {
   if (!s) return "";
   return s.charAt(0).toLocaleUpperCase("ru-RU") + s.slice(1).toLocaleLowerCase("ru-RU");
+}
+
+/**
+ * По URL брони определяем короткий провайдер-лейбл для кнопки:
+ * airbnb.com → «Airbnb», booking.com → «Booking.com». Null — если
+ * не угадали: оставляем общий «Бронь».
+ */
+function getStayProviderLabel(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (/(?:^|[/.])airbnb\./i.test(url)) return "Airbnb";
+  if (/(?:^|[/.])booking\./i.test(url)) return "Booking.com";
+  return null;
 }
 
 function linkChipClass(kind?: string | null): string {
