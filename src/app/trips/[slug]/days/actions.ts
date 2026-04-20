@@ -272,6 +272,69 @@ export async function deleteEventAction(
   revalidatePath(`/trips/${slug}/days/${dayNumber}`);
 }
 
+type AttachmentRow = { document_id: string; label: string | null };
+
+export async function addEventAttachmentAction(
+  slug: string,
+  dayNumber: number,
+  eventId: string,
+  documentId: string,
+  label: string | null
+) {
+  const username = await getCurrentUsername();
+  if (!username) return;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("events")
+    .select("attachments,document_id")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!data) return;
+  const current: AttachmentRow[] = Array.isArray(
+    (data as { attachments: unknown }).attachments
+  )
+    ? ((data as { attachments: unknown[] }).attachments as AttachmentRow[]).filter(
+        (a) => a?.document_id
+      )
+    : [];
+  if (current.some((a) => a.document_id === documentId)) return;
+  const legacyId = (data as { document_id: string | null }).document_id;
+  const seeded: AttachmentRow[] =
+    current.length === 0 && legacyId
+      ? [{ document_id: legacyId, label: null }]
+      : current;
+  const next = [...seeded, { document_id: documentId, label }];
+  await admin.from("events").update({ attachments: next }).eq("id", eventId);
+  revalidatePath(`/trips/${slug}/days/${dayNumber}`);
+}
+
+export async function removeEventAttachmentAction(
+  slug: string,
+  dayNumber: number,
+  eventId: string,
+  documentId: string
+) {
+  const username = await getCurrentUsername();
+  if (!username) return;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("events")
+    .select("attachments")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!data) return;
+  const current: AttachmentRow[] = Array.isArray(
+    (data as { attachments: unknown }).attachments
+  )
+    ? ((data as { attachments: unknown[] }).attachments as AttachmentRow[]).filter(
+        (a) => a?.document_id
+      )
+    : [];
+  const next = current.filter((a) => a.document_id !== documentId);
+  await admin.from("events").update({ attachments: next }).eq("id", eventId);
+  revalidatePath(`/trips/${slug}/days/${dayNumber}`);
+}
+
 /**
  * Move an event up or down in the day's timeline by swapping
  * sort_order with its neighbour. Simpler than drag and drop and

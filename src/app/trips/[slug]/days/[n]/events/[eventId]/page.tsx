@@ -2,7 +2,13 @@ import { notFound } from "next/navigation";
 import Header from "@/components/Header";
 import OfflineBanner from "@/components/OfflineBanner";
 import EventForm from "../EventForm";
-import { updateEventAction, type EventActionState } from "../../../actions";
+import EventAttachmentsEditor from "./EventAttachmentsEditor";
+import {
+  updateEventAction,
+  addEventAttachmentAction,
+  removeEventAttachmentAction,
+  type EventActionState,
+} from "../../../actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatTimeInTz } from "@/lib/format-tz";
 
@@ -19,6 +25,11 @@ type DayRow = {
   date: string;
 };
 
+type AttachmentRow = {
+  document_id: string;
+  label: string | null;
+};
+
 type EventRow = {
   id: string;
   title: string;
@@ -27,6 +38,14 @@ type EventRow = {
   map_url: string | null;
   start_at: string | null;
   end_at: string | null;
+  document_id: string | null;
+  attachments: AttachmentRow[] | null;
+};
+
+type DocRow = {
+  id: string;
+  title: string | null;
+  storage_path: string;
 };
 
 export default async function EditEventPage({
@@ -57,12 +76,54 @@ export default async function EditEventPage({
 
   const { data: eventData } = await admin
     .from("events")
-    .select("id,title,kind,notes,map_url,start_at,end_at")
+    .select("id,title,kind,notes,map_url,start_at,end_at,document_id,attachments")
     .eq("id", eventId)
     .eq("day_id", day.id)
     .maybeSingle();
   if (!eventData) notFound();
   const event = eventData as EventRow;
+
+  // Build the canonical attachments list the same way page.tsx does.
+  const rawAttachments: AttachmentRow[] = Array.isArray(event.attachments)
+    ? event.attachments.filter((a) => a?.document_id)
+    : [];
+  const seeded: AttachmentRow[] =
+    rawAttachments.length === 0 && event.document_id
+      ? [{ document_id: event.document_id, label: null }]
+      : rawAttachments;
+
+  // Fetch document metadata for all attached + available trip docs.
+  const { data: allDocs } = await admin
+    .from("documents")
+    .select("id,title,storage_path")
+    .eq("trip_id", trip.id)
+    .order("created_at", { ascending: true });
+  const docs = (allDocs ?? []) as DocRow[];
+
+  // Signed URLs only for attached documents (for display).
+  const attachedPaths = seeded
+    .map((a) => docs.find((d) => d.id === a.document_id)?.storage_path)
+    .filter((p): p is string => Boolean(p));
+  const signedByPath = new Map<string, string>();
+  if (attachedPaths.length > 0) {
+    const { data: signed } = await admin.storage
+      .from("documents")
+      .createSignedUrls(attachedPaths, 3600);
+    for (let i = 0; i < attachedPaths.length; i++) {
+      const url = (signed ?? [])[i]?.signedUrl;
+      if (url) signedByPath.set(attachedPaths[i], url);
+    }
+  }
+
+  const attachmentsForEditor = seeded.map((a) => {
+    const doc = docs.find((d) => d.id === a.document_id);
+    return {
+      document_id: a.document_id,
+      label: a.label,
+      title: doc?.title ?? null,
+      signed_url: doc ? (signedByPath.get(doc.storage_path) ?? null) : null,
+    };
+  });
 
   const bound = async (
     prev: EventActionState,
@@ -70,6 +131,19 @@ export default async function EditEventPage({
   ): Promise<EventActionState> => {
     "use server";
     return updateEventAction(slug, dayNumber, eventId, prev, formData);
+  };
+
+  const addAttachment = async (
+    documentId: string,
+    label: string | null
+  ): Promise<void> => {
+    "use server";
+    await addEventAttachmentAction(slug, dayNumber, eventId, documentId, label);
+  };
+
+  const removeAttachment = async (documentId: string): Promise<void> => {
+    "use server";
+    await removeEventAttachmentAction(slug, dayNumber, eventId, documentId);
   };
 
   return (
@@ -80,7 +154,7 @@ export default async function EditEventPage({
         subtitle={`День ${dayNumber}`}
         back={`/trips/${slug}/days/${dayNumber}`}
       />
-      <div className="px-5 pb-24 pt-4">
+      <div className="px-5 pb-24 pt-4 space-y-6">
         <EventForm
           tripSlug={slug}
           dayNumber={dayNumber}
@@ -94,6 +168,12 @@ export default async function EditEventPage({
             start_time: formatTimeInTz(event.start_at, trip.primary_tz),
             end_time: formatTimeInTz(event.end_at, trip.primary_tz),
           }}
+        />
+        <EventAttachmentsEditor
+          attachments={attachmentsForEditor}
+          availableDocs={docs.map((d) => ({ id: d.id, title: d.title }))}
+          addAttachment={addAttachment}
+          removeAttachment={removeAttachment}
         />
       </div>
     </>
