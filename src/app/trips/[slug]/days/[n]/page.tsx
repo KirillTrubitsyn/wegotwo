@@ -5,7 +5,11 @@ import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
-import Timeline, { type TimelineEvent, type TimelineLink } from "@/components/Timeline";
+import Timeline, {
+  type TimelineEvent,
+  type TimelineLink,
+  type TourDetails,
+} from "@/components/Timeline";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { formatTimeInTz } from "@/lib/format-tz";
@@ -52,6 +56,9 @@ type EventRow = {
   booking_url: string | null;
   map_embed_url: string | null;
   links: TimelineLink[] | null;
+  description: string | null;
+  tour_details: TourDetails | null;
+  ticket_url: string | null;
 };
 
 export default async function DayDetailPage({
@@ -100,40 +107,70 @@ export default async function DayDetailPage({
   // (`booking_url`/`map_embed_url`/`links` отсутствуют), запрос упадёт
   // c 42703 и таймлайн окажется пустым — делаем fallback на базовый
   // набор колонок, чтобы события всё равно отображались.
+  // Расширенный select включает обе волны phase14 и phase16. Если
+  // ни те, ни другие колонки не применены, делаем два отступа подряд.
   let rawEvents: EventRow[] = [];
   {
-    const extended = await admin
+    const full = await admin
       .from("events")
       .select(
-        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
+        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links,description,tour_details,ticket_url"
       )
       .eq("day_id", day.id)
       .order("start_at", { ascending: true, nullsFirst: false })
       .order("sort_order", { ascending: true });
-    if (extended.error) {
+    if (!full.error) {
+      rawEvents = (full.data ?? []) as EventRow[];
+    } else {
       console.warn(
-        "[day] extended events select failed, falling back:",
-        extended.error.message
+        "[day] full events select failed, trying phase14-only:",
+        full.error.message
       );
-      const basic = await admin
+      const phase14 = await admin
         .from("events")
         .select(
-          "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+          "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
         )
         .eq("day_id", day.id)
         .order("start_at", { ascending: true, nullsFirst: false })
         .order("sort_order", { ascending: true });
-      rawEvents = ((basic.data ?? []) as Omit<
-        EventRow,
-        "booking_url" | "map_embed_url" | "links"
-      >[]).map((e) => ({
-        ...e,
-        booking_url: null,
-        map_embed_url: null,
-        links: null,
-      }));
-    } else {
-      rawEvents = (extended.data ?? []) as EventRow[];
+      if (!phase14.error) {
+        rawEvents = ((phase14.data ?? []) as Omit<
+          EventRow,
+          "description" | "tour_details" | "ticket_url"
+        >[]).map((e) => ({
+          ...e,
+          description: null,
+          tour_details: null,
+          ticket_url: null,
+        }));
+      } else {
+        const basic = await admin
+          .from("events")
+          .select(
+            "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+          )
+          .eq("day_id", day.id)
+          .order("start_at", { ascending: true, nullsFirst: false })
+          .order("sort_order", { ascending: true });
+        rawEvents = ((basic.data ?? []) as Omit<
+          EventRow,
+          | "booking_url"
+          | "map_embed_url"
+          | "links"
+          | "description"
+          | "tour_details"
+          | "ticket_url"
+        >[]).map((e) => ({
+          ...e,
+          booking_url: null,
+          map_embed_url: null,
+          links: null,
+          description: null,
+          tour_details: null,
+          ticket_url: null,
+        }));
+      }
     }
   }
 
@@ -172,6 +209,9 @@ export default async function DayDetailPage({
     booking_url: e.booking_url,
     map_embed_url: e.map_embed_url,
     links: Array.isArray(e.links) ? e.links : [],
+    description: e.description,
+    tour_details: e.tour_details ?? null,
+    ticket_url: e.ticket_url,
   }));
 
   const today = new Date().toISOString().slice(0, 10);

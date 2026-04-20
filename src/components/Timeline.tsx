@@ -1,11 +1,28 @@
 import Link from "next/link";
 import { reorderEventAction, deleteEventAction } from "@/app/trips/[slug]/days/actions";
+import EventDescription from "@/components/EventDescription";
 
 export type TimelineLink = {
   label: string;
   url: string;
   icon?: string | null;
   kind?: string | null;
+};
+
+export type TourExtra = {
+  label: string;
+  amount: number | null;
+  currency: string | null;
+};
+
+export type TourDetails = {
+  guide_name?: string | null;
+  guide_phone?: string | null;
+  paid_amount?: number | null;
+  paid_currency?: string | null;
+  due_amount?: number | null;
+  due_currency?: string | null;
+  extras?: TourExtra[] | null;
 };
 
 export type TimelineEvent = {
@@ -25,6 +42,9 @@ export type TimelineEvent = {
   booking_url: string | null;
   map_embed_url: string | null;
   links: TimelineLink[];
+  description: string | null;
+  tour_details: TourDetails | null;
+  ticket_url: string | null;
 };
 
 const dotStyles: Record<string, string> = {
@@ -143,7 +163,21 @@ export default function Timeline({
                 {event.notes}
               </div>
             )}
+            {/* Payment summary for tour events: paid / due / extras */}
+            {event.tour_details && <TourPayment details={event.tour_details} />}
+            {/* Collapsible long-form description (Tripster-style blurb) */}
+            <EventDescription text={event.description} />
             <div className="flex gap-2 mt-2 flex-wrap">
+              {event.ticket_url && (
+                <a
+                  href={event.ticket_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-[5px] px-[14px] py-[7px] rounded-badge text-[12px] font-medium bg-gold-lt border border-gold/30 text-[#8a6200] hover:bg-gold/25"
+                >
+                  <span>🎟</span> Страница экскурсии
+                </a>
+              )}
               {event.booking_url && (
                 <a
                   href={event.booking_url}
@@ -297,4 +331,84 @@ function formatTimeRange(start: string | null, end: string | null): string {
   if (!start && !end) return "";
   if (start && end) return `${start} — ${end}`;
   return start || end || "";
+}
+
+function formatMoney(
+  amount: number | null | undefined,
+  currency: string | null | undefined
+): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  const formatted = amount.toLocaleString("ru-RU", {
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function TourPayment({ details }: { details: TourDetails }) {
+  const paid = formatMoney(details.paid_amount, details.paid_currency);
+  const due = formatMoney(details.due_amount, details.due_currency);
+  const extras = (details.extras ?? []).filter(
+    (e) => e && e.label && (e.amount != null || e.currency)
+  );
+  const hasAnything =
+    paid || due || details.guide_name || details.guide_phone || extras.length > 0;
+  if (!hasAnything) return null;
+  return (
+    <div className="mt-2 rounded-card bg-bg-surface border border-black/[0.06] p-3 space-y-[6px]">
+      {(details.guide_name || details.guide_phone) && (
+        <div className="flex items-baseline justify-between gap-2 text-[12px]">
+          <span className="text-text-sec">Гид</span>
+          <span className="text-text-main font-medium text-right">
+            {details.guide_name ?? "—"}
+            {details.guide_phone && (
+              <>
+                {" · "}
+                <a
+                  href={`tel:${details.guide_phone.replace(/[^+\d]/g, "")}`}
+                  className="text-green"
+                >
+                  {details.guide_phone}
+                </a>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      {paid && (
+        <div className="flex items-baseline justify-between gap-2 text-[12px]">
+          <span className="text-text-sec">Предоплачено</span>
+          <span className="text-green font-mono font-semibold tnum">
+            {paid}
+          </span>
+        </div>
+      )}
+      {due && (
+        <div className="flex items-baseline justify-between gap-2 text-[12px]">
+          <span className="text-text-sec">Доплата гиду</span>
+          <span className="text-accent font-mono font-semibold tnum">
+            {due}
+          </span>
+        </div>
+      )}
+      {extras.length > 0 && (
+        <div className="pt-[6px] mt-[6px] border-t border-black/[0.06] space-y-[4px]">
+          <div className="text-[10px] uppercase tracking-[0.5px] text-text-sec font-semibold">
+            Доп. расходы
+          </div>
+          {extras.map((x, i) => (
+            <div
+              key={i}
+              className="flex items-baseline justify-between gap-2 text-[12px]"
+            >
+              <span className="text-text-main">{x.label}</span>
+              <span className="text-text-sec font-mono tnum">
+                {formatMoney(x.amount, x.currency) ?? "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

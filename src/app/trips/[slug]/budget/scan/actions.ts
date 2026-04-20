@@ -394,6 +394,17 @@ export async function commitScanAction(
         description: it.description,
         amount: it.amount,
       })),
+      // Tour-specific поля — для ручного чека всегда null.
+      tour_url: null,
+      guide_name: null,
+      guide_phone: null,
+      paid_amount: null,
+      paid_currency: null,
+      due_amount: null,
+      due_currency: null,
+      start_time: null,
+      end_time: null,
+      extras: [],
     },
   };
 

@@ -272,11 +272,13 @@ export async function rebuildTripEvents(
     }
   }
 
-  // Expenses
+  // Expenses — тащим tour-specific поля из documents.parsed_fields,
+  // чтобы событие-экскурсия при rebuild получило tour_details /
+  // ticket_url / guide_* даже если в expenses нет колонок под них.
   const { data: expRows, error: eErr } = await admin
     .from("expenses")
     .select(
-      "id,merchant,description,occurred_on,amount_original,currency_original,category"
+      "id,merchant,description,occurred_on,amount_original,currency_original,category,document_id"
     )
     .eq("trip_id", trip.id);
   if (eErr) {
@@ -295,7 +297,45 @@ export async function rebuildTripEvents(
     amount_original: number | string;
     currency_original: string;
     category: string;
+    document_id: string | null;
   }>) {
+    // Если расход ingest'ился из документа — подтягиваем полный
+    // parsed_fields, там живут все поля Gemini-schema (в том числе
+    // tour_url, guide_name, paid_amount, extras, start/end_time).
+    let tourFields: Partial<ExpenseFields> = {};
+    if (r.document_id) {
+      const { data: doc } = await admin
+        .from("documents")
+        .select("parsed_fields")
+        .eq("id", r.document_id)
+        .maybeSingle();
+      const pf = (doc as { parsed_fields: unknown } | null)?.parsed_fields;
+      if (pf && typeof pf === "object" && pf !== null) {
+        const exp = (pf as { expense?: unknown }).expense;
+        if (exp && typeof exp === "object") {
+          const e = exp as Record<string, unknown>;
+          tourFields = {
+            tour_url: (e.tour_url as string | null) ?? null,
+            guide_name: (e.guide_name as string | null) ?? null,
+            guide_phone: (e.guide_phone as string | null) ?? null,
+            paid_amount: (e.paid_amount as number | null) ?? null,
+            paid_currency: (e.paid_currency as string | null) ?? null,
+            due_amount: (e.due_amount as number | null) ?? null,
+            due_currency: (e.due_currency as string | null) ?? null,
+            start_time: (e.start_time as string | null) ?? null,
+            end_time: (e.end_time as string | null) ?? null,
+            extras: Array.isArray(e.extras)
+              ? (e.extras as Array<{
+                  label: string | null;
+                  amount: number | null;
+                  currency: string | null;
+                }>)
+              : [],
+          };
+        }
+      }
+    }
+
     const fields: ExpenseFields = {
       merchant: r.merchant,
       description: r.description,
@@ -307,6 +347,16 @@ export async function rebuildTripEvents(
       currency: r.currency_original,
       category: r.category as ExpenseFields["category"],
       items: [],
+      tour_url: tourFields.tour_url ?? null,
+      guide_name: tourFields.guide_name ?? null,
+      guide_phone: tourFields.guide_phone ?? null,
+      paid_amount: tourFields.paid_amount ?? null,
+      paid_currency: tourFields.paid_currency ?? null,
+      due_amount: tourFields.due_amount ?? null,
+      due_currency: tourFields.due_currency ?? null,
+      start_time: tourFields.start_time ?? null,
+      end_time: tourFields.end_time ?? null,
+      extras: tourFields.extras ?? [],
     };
     try {
       expenseEvents += await createEventsForExpense(admin, tripCtx, fields);
