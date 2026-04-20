@@ -186,19 +186,19 @@ type EventRow = {
  * any new fields (map_url, booking_url, links, notes, attachments)
  * that a later pass populated.
  *
- * Дедуп-стратегия (толерантная к изменениям start_at):
- *   1. Ищем строку по (trip_id, day_id, kind, title) — берём ВСЕ
- *      совпадения.
- *   2. Среди них выбираем:
+ * Дедуп-стратегия (толерантная к изменениям start_at и к регистру):
+ *   1. Ищем строки по (trip_id, day_id, kind) + фильтруем в JS по
+ *      `normalizeTitle(candidate.title) === normalizeTitle(row.title)`.
+ *      Case-insensitive + сжатие пробелов. Нужно, потому что Gemini
+ *      из двух билетов на один рейс («Air Serbia JU 137» и
+ *      «AIR SERBIA JU 137») иначе даёт два разных title и плодит
+ *      дубли событий.
+ *   2. Среди кандидатов выбираем:
  *      a) точное совпадение по start_at (если оба не null);
  *      b) иначе — строку с тем же не-null start_at (уже заполнили);
  *      c) иначе — строку с start_at IS NULL (её обновим свежим
  *         временем, которое принёс reparse);
  *      d) иначе — первую из списка.
- *
- * Это ключевое отличие от старой логики: раньше `start_at` входил
- * в ключ, и reparse с появившимся временем создавал ДУБЛИКАТ
- * рядом со старой записью без времени.
  *
  * Для рейсов это безопасно: один рейс на день имеет уникальный
  * title (включает code), несколько сегментов одного маршрута —
@@ -210,14 +210,19 @@ async function upsertEvent(
 ): Promise<boolean> {
   const { data: matches } = await admin
     .from("events")
-    .select("id,start_at")
+    .select("id,start_at,title")
     .eq("trip_id", row.trip_id)
     .eq("day_id", row.day_id)
-    .eq("kind", row.kind)
-    .eq("title", row.title);
+    .eq("kind", row.kind);
 
-  const candidates =
-    (matches as Array<{ id: string; start_at: string | null }> | null) ?? [];
+  const all =
+    (matches as Array<{
+      id: string;
+      start_at: string | null;
+      title: string;
+    }> | null) ?? [];
+  const want = normalizeEventTitle(row.title);
+  const candidates = all.filter((c) => normalizeEventTitle(c.title) === want);
   const existing = pickExistingEvent(candidates, row.start_at);
 
   if (existing) {
@@ -286,8 +291,21 @@ async function upsertEvent(
 
 /**
  * Выбирает строку для обновления из кандидатов с одинаковым
- * (trip_id, day_id, kind, title). См. комментарий к upsertEvent.
+ * (trip_id, day_id, kind, normalizeEventTitle(title)). См. комментарий
+ * к upsertEvent.
  */
+/**
+ * Приводит title события к канонической форме для сравнения:
+ *   • lower-case,
+ *   • сжатые подряд пробелы,
+ *   • trim.
+ * Нужно, чтобы «Air Serbia JU 137: Москва → Белград» и
+ * «AIR SERBIA JU 137: Москва → Белград» считались одним событием.
+ */
+function normalizeEventTitle(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function pickExistingEvent(
   candidates: Array<{ id: string; start_at: string | null }>,
   incoming: string | null
