@@ -253,6 +253,13 @@ async function upsertEvent(
     if (row.kind === "stay" || row.kind === "flight" || row.kind === "transfer") {
       patch.description = null;
     }
+    // Для stay — принудительно перезаписываем title санитизированным
+    // значением. Без этого sanitizeStayName не «достанет» до DB: в
+    // events стоит прежний prose-title, upsertEvent находит строку
+    // (по normalizeEventTitle) и не трогает title.
+    if (row.kind === "stay") {
+      patch.title = row.title;
+    }
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);
@@ -644,6 +651,37 @@ function formatPrice(
 }
 
 /**
+ * Короткое название жилья для события «Заселение: {name}».
+ *
+ * Gemini иногда натолкает в `stays.title` целый prose-дамп всех полей
+ * («Жильё, Тиват (хозяин …) 3 Šetalište Kapetana Iva Vizina …
+ * Check-in: … Confirmation: … Host_phone: null …»), и наше событие
+ * превращается в стену текста.
+ *
+ * Признаки мусора:
+ *   • длина >80 символов,
+ *   • содержит field markers (Check-in, Host:, Confirmation,
+ *     Country code, Host_phone, Price: null, …).
+ *
+ * В таких случаях используем fallback «Проживание».
+ */
+function sanitizeStayName(raw: string | null | undefined): string {
+  const fallback = "Проживание";
+  if (!raw) return fallback;
+  const t = raw.trim();
+  if (!t) return fallback;
+  if (t.length > 80) return fallback;
+  if (
+    /\b(check[\s_-]?in|check[\s_-]?out|confirmation|host[\s_-]?phone|country[\s_-]?code|currency|price\s*:\s*null|address\s*:)\b/i.test(
+      t
+    )
+  ) {
+    return fallback;
+  }
+  return t;
+}
+
+/**
  * Format "HH:MM" in the trip's timezone — used to put a concrete
  * check-in / check-out time into the event notes without depending
  * on the rendering layer.
@@ -679,7 +717,7 @@ export async function createEventsForStay(
   const checkIn = normalizeDateTime(s.check_in, trip.primary_tz);
   const checkOut = normalizeDateTime(s.check_out, trip.primary_tz);
 
-  const nameLabel = s.title?.trim() || "Проживание";
+  const nameLabel = sanitizeStayName(s.title);
   const address = s.address ?? null;
   // Если пользователь вручную задал ссылку на Google Maps, берём
   // координаты из неё (точный пин POI). Иначе используем lat/lon
