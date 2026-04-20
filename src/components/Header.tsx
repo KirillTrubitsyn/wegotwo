@@ -27,6 +27,10 @@ type Props = {
   back?: string | null;
   /** If present, render live clocks and optional weather. */
   trip?: TripCtx | null;
+  /** Replace the title text with an SVG wordmark (home screen). */
+  logoSrc?: string | null;
+  /** Show a standalone live Moscow clock row under the title. */
+  mskClock?: boolean;
 };
 
 const MSK_LABEL = "MSK";
@@ -50,10 +54,30 @@ function formatDate(timeZone: string): string {
   });
 }
 
-export default function Header({ title, subtitle, back, trip }: Props) {
+function formatWeekday(timeZone: string): string {
+  const raw = new Date().toLocaleString("ru-RU", {
+    timeZone,
+    weekday: "short",
+  });
+  return raw.replace(/\.?$/, "").replace(/^./, (c) => c.toUpperCase());
+}
+
+export default function Header({
+  title,
+  subtitle,
+  back,
+  trip,
+  logoSrc,
+  mskClock,
+}: Props) {
   const [now, setNow] = useState<{ date: string; local: string; msk: string }>(
     { date: "", local: "", msk: "" }
   );
+  const [mskNow, setMskNow] = useState<{
+    weekday: string;
+    date: string;
+    time: string;
+  }>({ weekday: "", date: "", time: "" });
   const [photoOpen, setPhotoOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -71,6 +95,19 @@ export default function Header({ title, subtitle, back, trip }: Props) {
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
   }, [trip]);
+
+  useEffect(() => {
+    if (!mskClock) return;
+    const tick = () =>
+      setMskNow({
+        weekday: formatWeekday("Europe/Moscow"),
+        date: formatDate("Europe/Moscow"),
+        time: formatTime("Europe/Moscow"),
+      });
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [mskClock]);
 
   // Close the lightbox on Escape.
   useEffect(() => {
@@ -120,9 +157,19 @@ export default function Header({ title, subtitle, back, trip }: Props) {
           </Link>
         )}
         <div className="min-w-0 flex-1">
-          <h1 className="text-[22px] font-semibold tracking-[-0.4px] text-text-main truncate">
-            {title}
-          </h1>
+          {logoSrc ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={logoSrc}
+              alt={title}
+              className="h-[28px] w-auto block select-none"
+              draggable={false}
+            />
+          ) : (
+            <h1 className="text-[22px] font-semibold tracking-[-0.4px] text-text-main truncate">
+              {title}
+            </h1>
+          )}
           {trip && !trip.hideClock ? (
             <p className="text-[13px] text-text-sec mt-[2px] tabular-nums">
               {now.date}
@@ -133,6 +180,16 @@ export default function Header({ title, subtitle, back, trip }: Props) {
               {" / "}
               <span>
                 {MSK_LABEL} {now.msk}
+              </span>
+            </p>
+          ) : mskClock ? (
+            <p className="text-[13px] text-text-sec mt-[4px] tabular-nums">
+              {mskNow.weekday}
+              {" · "}
+              {mskNow.date}
+              {" · "}
+              <span className="font-mono font-semibold text-text-main">
+                {MSK_LABEL} {mskNow.time}
               </span>
             </p>
           ) : subtitle ? (

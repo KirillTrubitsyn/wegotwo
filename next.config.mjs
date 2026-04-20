@@ -10,6 +10,9 @@ const nextConfig = {
     "/api/admin/seed/europe-2026": [
       "./src/seed/europe-2026/photos/**/*",
     ],
+    "/api/admin/seed/common-docs": [
+      "./src/seed/common-docs/**/*",
+    ],
   },
   images: {
     remotePatterns: [
