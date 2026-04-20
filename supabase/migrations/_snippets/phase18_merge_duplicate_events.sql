@@ -70,7 +70,9 @@ ranked as (
 )
 insert into _phase18_dup_groups (keep_id, loser_ids)
 select
-  min(case when rnk = 1 then id end) as keep_id,
+  -- uuid не поддерживает min() — берём первый элемент отфильтрованного
+  -- массива (после row_number() в группе ровно одна строка с rnk=1).
+  (array_agg(id) filter (where rnk = 1))[1] as keep_id,
   array_agg(id) filter (where rnk > 1) as loser_ids
 from ranked
 where cnt > 1
