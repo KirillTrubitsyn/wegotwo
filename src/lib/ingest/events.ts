@@ -191,17 +191,77 @@ async function upsertEvent(
     // `notes` carries bookkeeping like "Код · Хозяин · Оплачено". We
     // regenerate it on every ingest so price / host updates appear.
     if (row.notes) patch.notes = row.notes;
-    const { error } = await admin.from("events").update(patch).eq("id", id);
-    if (error) console.error("[events.upsertEvent] update:", error.message);
+    const updRes = await updateEventCompat(admin, id, patch);
+    if (updRes.error)
+      console.error("[events.upsertEvent] update:", updRes.error);
     return false;
   }
 
-  const { error } = await admin.from("events").insert(row);
-  if (error) {
-    console.error("[events.upsertEvent] insert:", error.message);
+  const insRes = await insertEventCompat(admin, row);
+  if (insRes.error) {
+    console.error("[events.upsertEvent] insert:", insRes.error);
     return false;
   }
   return true;
+}
+
+/**
+ * Phase 14 добавил `events.booking_url`, `events.map_embed_url`,
+ * `events.links`. Если миграция ещё не накатилась, пробуем второй
+ * раз без этих полей — чтобы не ронять весь ingest из-за незнакомой
+ * колонки. Аналогично для update.
+ */
+const PHASE14_COLUMNS = ["booking_url", "map_embed_url", "links"] as const;
+
+async function insertEventCompat(
+  admin: SupabaseClient,
+  row: EventRow
+): Promise<{ error?: string }> {
+  const { error } = await admin.from("events").insert(row);
+  if (!error) return {};
+  if (isUnknownColumnError(error.message, PHASE14_COLUMNS)) {
+    const stripped: Record<string, unknown> = { ...row };
+    for (const c of PHASE14_COLUMNS) delete stripped[c];
+    const { error: retry } = await admin.from("events").insert(stripped);
+    if (!retry) return {};
+    return { error: retry.message };
+  }
+  return { error: error.message };
+}
+
+async function updateEventCompat(
+  admin: SupabaseClient,
+  id: string,
+  patch: Record<string, unknown>
+): Promise<{ error?: string }> {
+  const { error } = await admin.from("events").update(patch).eq("id", id);
+  if (!error) return {};
+  if (isUnknownColumnError(error.message, PHASE14_COLUMNS)) {
+    const stripped: Record<string, unknown> = { ...patch };
+    for (const c of PHASE14_COLUMNS) delete stripped[c];
+    const { error: retry } = await admin
+      .from("events")
+      .update(stripped)
+      .eq("id", id);
+    if (!retry) return {};
+    return { error: retry.message };
+  }
+  return { error: error.message };
+}
+
+function isUnknownColumnError(
+  msg: string,
+  cols: readonly string[]
+): boolean {
+  // PostgREST: 'column "xxx" of relation "events" does not exist'
+  // Supabase sometimes phrases it as "Could not find the 'xxx' column".
+  const lower = msg.toLowerCase();
+  return cols.some(
+    (c) =>
+      lower.includes(`column "${c}"`) ||
+      lower.includes(`'${c}' column`) ||
+      lower.includes(`"${c}" of relation`)
+  );
 }
 
 function buildFlightLinks(

@@ -134,20 +134,42 @@ export async function rebuildTripEvents(
     }
   }
 
-  // Stays
-  const { data: stayRows, error: sErr } = await admin
-    .from("stays")
-    .select(
-      "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
-    )
-    .eq("trip_id", trip.id);
-  if (sErr) {
-    return {
-      ok: false,
-      stage: "stays:select",
-      error: sErr.message,
-      status: 500,
-    };
+  // Stays — если миграция phase14 не накатилась, колонки
+  // `booking_url` может не существовать. Пробуем расширенный select,
+  // при ошибке отступаем на базовый.
+  let stayRows:
+    | Array<Record<string, unknown>>
+    | null = null;
+  {
+    const extended = await admin
+      .from("stays")
+      .select(
+        "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon,booking_url"
+      )
+      .eq("trip_id", trip.id);
+    if (extended.error) {
+      console.warn(
+        "[rebuild] extended stays select failed, falling back:",
+        extended.error.message
+      );
+      const basic = await admin
+        .from("stays")
+        .select(
+          "id,destination_id,title,address,check_in,check_out,host,host_phone,confirmation,price,currency,lat,lon"
+        )
+        .eq("trip_id", trip.id);
+      if (basic.error) {
+        return {
+          ok: false,
+          stage: "stays:select",
+          error: basic.error.message,
+          status: 500,
+        };
+      }
+      stayRows = (basic.data ?? []) as Array<Record<string, unknown>>;
+    } else {
+      stayRows = (extended.data ?? []) as Array<Record<string, unknown>>;
+    }
   }
   let stayEvents = 0;
   type StayRow = Omit<StayFields, "country_code"> & {
@@ -157,16 +179,29 @@ export async function rebuildTripEvents(
     lon: number | null;
     booking_url: string | null;
   };
-  for (const r of (stayRows ?? []) as StayRow[]) {
+  for (const raw of stayRows) {
+    const r = {
+      ...raw,
+      booking_url:
+        (raw.booking_url as string | null | undefined) ?? null,
+    } as StayRow;
     let bookingUrl = r.booking_url;
     if (!bookingUrl) {
       const derived = detectStayProvider(r.confirmation)?.url ?? null;
       if (derived) {
         bookingUrl = derived;
-        await admin
+        // Мягкая запись — если колонка ещё не существует, просто
+        // пропускаем (событие получит ссылку напрямую через fields).
+        const upd = await admin
           .from("stays")
           .update({ booking_url: derived })
           .eq("id", r.id);
+        if (upd.error) {
+          console.warn(
+            "[rebuild] stays.booking_url update skipped:",
+            upd.error.message
+          );
+        }
       }
     }
     const fields: StayFields & {

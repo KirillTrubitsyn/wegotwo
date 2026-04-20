@@ -95,19 +95,47 @@ export default async function DayDetailPage({
   const nextHref =
     dayNumber < totalDays ? `/trips/${trip.slug}/days/${dayNumber + 1}` : null;
 
-  const { data: eventsData } = await admin
-    .from("events")
-    .select(
-      "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
-    )
-    .eq("day_id", day.id)
-    // Сортируем хронологически: сначала события с известным временем,
-    // затем — без времени, в порядке sort_order. Это убирает случайное
-    // "наслоение" check-in / flight / activity на один и тот же день.
-    .order("start_at", { ascending: true, nullsFirst: false })
-    .order("sort_order", { ascending: true });
-
-  const rawEvents = (eventsData ?? []) as EventRow[];
+  // Пробуем прочитать расширенные поля (phase 14). Если миграция
+  // `20260420000002_phase14_event_links.sql` ещё не применена к базе
+  // (`booking_url`/`map_embed_url`/`links` отсутствуют), запрос упадёт
+  // c 42703 и таймлайн окажется пустым — делаем fallback на базовый
+  // набор колонок, чтобы события всё равно отображались.
+  let rawEvents: EventRow[] = [];
+  {
+    const extended = await admin
+      .from("events")
+      .select(
+        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
+      )
+      .eq("day_id", day.id)
+      .order("start_at", { ascending: true, nullsFirst: false })
+      .order("sort_order", { ascending: true });
+    if (extended.error) {
+      console.warn(
+        "[day] extended events select failed, falling back:",
+        extended.error.message
+      );
+      const basic = await admin
+        .from("events")
+        .select(
+          "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+        )
+        .eq("day_id", day.id)
+        .order("start_at", { ascending: true, nullsFirst: false })
+        .order("sort_order", { ascending: true });
+      rawEvents = ((basic.data ?? []) as Omit<
+        EventRow,
+        "booking_url" | "map_embed_url" | "links"
+      >[]).map((e) => ({
+        ...e,
+        booking_url: null,
+        map_embed_url: null,
+        links: null,
+      }));
+    } else {
+      rawEvents = (extended.data ?? []) as EventRow[];
+    }
+  }
 
   // Batch signed URLs for all photo_path values on this day.
   const photoPaths = rawEvents
