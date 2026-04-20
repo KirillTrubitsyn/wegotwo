@@ -106,9 +106,14 @@ export async function rebuildTripEvents(
   // expenses, чтобы последующие upsert'ы попали в единого survivor'а.
   // ------------------------------------------------------------
   try {
-    await dedupeEventsByTitle(admin, trip.id);
+    await dedupeEvents(admin, trip.id, keyByTitle);
+    // Второй проход: для tour/activity/meal-событий склеиваем по
+    // ticket_url. Gemini на реrun'ах выдаёт слегка разные title
+    // («Индивидуальная экскурсия '…'» vs «…»), но ticket_url
+    // стабилен — один и тот же Tripster-URL → одно событие.
+    await dedupeEvents(admin, trip.id, keyByTicketUrl);
   } catch (e) {
-    console.error("[rebuild] dedupeEventsByTitle:", e);
+    console.error("[rebuild] dedupeEvents:", e);
   }
 
   // Агрессивный purge ingest-генерированных flight-событий. Их всегда
@@ -609,23 +614,44 @@ function normalizeEventTitleForDedup(title: string | null | undefined): string {
   return title.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+type KeyFn = (e: DedupEventRow) => string | null;
+
+/**
+ * Стандартный ключ: (day_id, kind, normalizeTitle(title)). Решает
+ * случай рейса с разным регистром airline.
+ */
+const keyByTitle: KeyFn = (e) => {
+  if (!e.day_id || !e.kind || !e.title) return null;
+  return `${e.day_id}|${e.kind}|${normalizeEventTitleForDedup(e.title)}`;
+};
+
+/**
+ * Ключ для tour/activity/meal-событий: (day_id, kind, ticket_url).
+ * Gemini на реrun'ах выдаёт разные title одного и того же Tripster-
+ * билета («Индивидуальная экскурсия ...» vs «Нетуристическое ...»),
+ * но ticket_url стабилен. Если ticket_url пуст — не группируем
+ * (null-ключ).
+ */
+const keyByTicketUrl: KeyFn = (e) => {
+  if (!e.day_id || !e.kind) return null;
+  if (e.kind !== "activity" && e.kind !== "meal") return null;
+  if (!e.ticket_url) return null;
+  return `${e.day_id}|${e.kind}|t:${e.ticket_url.trim()}`;
+};
+
 /**
  * JS-аналог SQL-снипета phase18_merge_duplicate_events.sql. Схлопывает
- * события с одинаковым (day_id, kind, normalizeTitle(title)). Нужен
- * на случай, когда:
- *   • SQL-снипет не был запущен (новый пользователь / новая поездка);
- *   • в базе остались дубли с разным регистром airline («Air Serbia»
- *     vs «AIR SERBIA»), которые старый case-sensitive upsertEvent
- *     плодил раньше.
+ * события, которые keyFn считает эквивалентными.
  *
  * Survivor — строка с максимумом заполненных полей. Неpустые поля из
  * loser'ов coalesce'ятся в survivor; attachments объединяются по
  * document_id; loser'ы удаляются. Ingest после этого шага увидит одну
  * строку и просто доджойнит ещё один attachment.
  */
-async function dedupeEventsByTitle(
+async function dedupeEvents(
   admin: SupabaseClient,
-  tripId: string
+  tripId: string,
+  keyFn: KeyFn
 ): Promise<void> {
   const { data: rows, error } = await admin
     .from("events")
@@ -640,12 +666,12 @@ async function dedupeEventsByTitle(
   const events = (rows ?? []) as DedupEventRow[];
   if (events.length === 0) return;
 
-  // Группируем по (day_id, kind, normalizeTitle). day_id=null и/или
-  // kind=null — такие события считаем «нестандартными» и не трогаем.
+  // Группируем по ключу keyFn. Если keyFn вернул null — пропускаем
+  // (нестандартное событие или неприменимо к текущему проходу).
   const groups = new Map<string, DedupEventRow[]>();
   for (const e of events) {
-    if (!e.day_id || !e.kind || !e.title) continue;
-    const key = `${e.day_id}|${e.kind}|${normalizeEventTitleForDedup(e.title)}`;
+    const key = keyFn(e);
+    if (!key) continue;
     const arr = groups.get(key) ?? [];
     arr.push(e);
     groups.set(key, arr);
