@@ -137,7 +137,7 @@ export default function Header({
     : "bg-blue-lt text-blue";
 
   return (
-    <header className="sticky top-0 z-[100] bg-white/[0.88] backdrop-blur-[24px] border-b border-black/[0.06] px-5 pt-[max(14px,env(safe-area-inset-top))] pb-3">
+    <header className="sticky top-0 z-[100] bg-white/[0.88] backdrop-blur-[24px] border-b border-black/[0.06] px-5 pt-[max(18px,env(safe-area-inset-top))] pb-4">
       <div className="flex items-center gap-3">
         {back && (
           <Link
@@ -162,7 +162,7 @@ export default function Header({
             <img
               src={logoSrc}
               alt={title}
-              className="h-[28px] w-auto block select-none"
+              className="h-[40px] w-auto block select-none"
               draggable={false}
             />
           ) : (
