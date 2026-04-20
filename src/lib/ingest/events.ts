@@ -149,6 +149,11 @@ type TourDetailsRow = {
   extras?: TourExtraRow[];
 };
 
+type EventAttachmentRow = {
+  document_id: string;
+  label: string | null;
+};
+
 type EventRow = {
   trip_id: string;
   day_id: string;
@@ -171,31 +176,52 @@ type EventRow = {
   tour_details?: TourDetailsRow | null;
   ticket_url?: string | null;
   document_id?: string | null;
+  /** Если указан — добавляется в events.attachments (мерджится с уже существующим массивом). */
+  attachment?: EventAttachmentRow | null;
 };
 
 /**
- * Insert the event if no (day_id, kind, start_at, title) match exists.
- * Otherwise UPDATE the existing row in place — ingest is idempotent,
- * but we still want to pick up any new fields (map_url, booking_url,
- * links, notes) that a later pass populated, e.g. when the dedup
- * logic merged two stay documents into one.
+ * Insert the event if no match exists. Otherwise UPDATE the existing
+ * row in place — ingest is idempotent, but we still want to pick up
+ * any new fields (map_url, booking_url, links, notes, attachments)
+ * that a later pass populated.
+ *
+ * Дедуп-стратегия (толерантная к изменениям start_at):
+ *   1. Ищем строку по (trip_id, day_id, kind, title) — берём ВСЕ
+ *      совпадения.
+ *   2. Среди них выбираем:
+ *      a) точное совпадение по start_at (если оба не null);
+ *      b) иначе — строку с тем же не-null start_at (уже заполнили);
+ *      c) иначе — строку с start_at IS NULL (её обновим свежим
+ *         временем, которое принёс reparse);
+ *      d) иначе — первую из списка.
+ *
+ * Это ключевое отличие от старой логики: раньше `start_at` входил
+ * в ключ, и reparse с появившимся временем создавал ДУБЛИКАТ
+ * рядом со старой записью без времени.
+ *
+ * Для рейсов это безопасно: один рейс на день имеет уникальный
+ * title (включает code), несколько сегментов одного маршрута —
+ * разные title.
  */
 async function upsertEvent(
   admin: SupabaseClient,
   row: EventRow
 ): Promise<boolean> {
-  let q = admin
+  const { data: matches } = await admin
     .from("events")
-    .select("id")
+    .select("id,start_at")
     .eq("trip_id", row.trip_id)
     .eq("day_id", row.day_id)
     .eq("kind", row.kind)
     .eq("title", row.title);
-  if (row.start_at) q = q.eq("start_at", row.start_at);
-  const { data: exists } = await q.limit(1).maybeSingle();
 
-  if (exists && (exists as { id: string }).id) {
-    const id = (exists as { id: string }).id;
+  const candidates =
+    (matches as Array<{ id: string; start_at: string | null }> | null) ?? [];
+  const existing = pickExistingEvent(candidates, row.start_at);
+
+  if (existing) {
+    const id = existing.id;
     // Patch only "enrichment" fields — we never overwrite a user's
     // manual edit of title / notes from the UI (the UI updates
     // through updateEventAction which goes through actions.ts).
@@ -214,6 +240,14 @@ async function upsertEvent(
       emoji: row.emoji,
       phone: row.phone,
     };
+    // start_at / end_at — обновляем, только если новый ingest принёс
+    // не-null значение И существующая строка не имеет своего.
+    // Это важно для сценария reparse: Gemini начал извлекать
+    // start_time, а раньше этого не делал — хотим проставить время.
+    // Если же у строки уже есть свой start_at (флайт, ручная правка),
+    // не перетираем его потенциально-устаревшим null.
+    if (row.start_at && !existing.start_at) patch.start_at = row.start_at;
+    if (row.end_at) patch.end_at = row.end_at;
     if (row.map_url != null) patch.map_url = row.map_url;
     if (row.website != null) patch.website = row.website;
     if (row.ticket_url != null) patch.ticket_url = row.ticket_url;
@@ -227,15 +261,114 @@ async function upsertEvent(
     const updRes = await updateEventCompat(admin, id, patch);
     if (updRes.error)
       console.error("[events.upsertEvent] update:", updRes.error);
+    if (row.attachment) {
+      await upsertAttachment(admin, id, row.attachment);
+    }
     return false;
   }
 
-  const insRes = await insertEventCompat(admin, row);
+  // Новое событие: attachments инициализируем из `attachment`
+  // (если передан) + всегда синхронизируем с document_id.
+  const attachments: EventAttachmentRow[] = [];
+  if (row.attachment) attachments.push(row.attachment);
+  else if (row.document_id)
+    attachments.push({ document_id: row.document_id, label: null });
+  const insertRow: Record<string, unknown> = { ...row };
+  delete insertRow.attachment;
+  insertRow.attachments = attachments;
+  const insRes = await insertEventCompat(admin, insertRow as EventRow);
   if (insRes.error) {
     console.error("[events.upsertEvent] insert:", insRes.error);
     return false;
   }
   return true;
+}
+
+/**
+ * Выбирает строку для обновления из кандидатов с одинаковым
+ * (trip_id, day_id, kind, title). См. комментарий к upsertEvent.
+ */
+function pickExistingEvent(
+  candidates: Array<{ id: string; start_at: string | null }>,
+  incoming: string | null
+): { id: string; start_at: string | null } | null {
+  if (candidates.length === 0) return null;
+  if (incoming) {
+    const exact = candidates.find((c) => c.start_at === incoming);
+    if (exact) return exact;
+    const anyNonNull = candidates.find((c) => c.start_at != null);
+    if (anyNonNull) return anyNonNull;
+    const nullRow = candidates.find((c) => c.start_at == null);
+    if (nullRow) return nullRow;
+  } else {
+    const nullRow = candidates.find((c) => c.start_at == null);
+    if (nullRow) return nullRow;
+    return candidates[0];
+  }
+  return candidates[0];
+}
+
+/**
+ * Аккуратно дописать attachment в events.attachments, если такого
+ * document_id ещё нет. Если колонка отсутствует (миграция phase18
+ * не накатилась) — тихо пропускаем.
+ */
+async function upsertAttachment(
+  admin: SupabaseClient,
+  eventId: string,
+  incoming: EventAttachmentRow
+): Promise<void> {
+  const { data, error } = await admin
+    .from("events")
+    .select("attachments")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (error) {
+    if (isUnknownColumnError(error.message, ["attachments"])) return;
+    console.warn("[events.upsertAttachment] select:", error.message);
+    return;
+  }
+  const raw = (data as { attachments: unknown } | null)?.attachments;
+  const current: EventAttachmentRow[] = Array.isArray(raw)
+    ? (raw as unknown[])
+        .filter((x) => x && typeof x === "object")
+        .map((x) => {
+          const r = x as Record<string, unknown>;
+          return {
+            document_id: String(r.document_id ?? ""),
+            label: r.label == null ? null : String(r.label),
+          };
+        })
+        .filter((a) => a.document_id.length > 0)
+    : [];
+  if (current.some((a) => a.document_id === incoming.document_id)) {
+    // Уже есть — обновим label, если текущий пуст, а новый задан.
+    let changed = false;
+    const next = current.map((a) => {
+      if (a.document_id === incoming.document_id && !a.label && incoming.label) {
+        changed = true;
+        return { ...a, label: incoming.label };
+      }
+      return a;
+    });
+    if (!changed) return;
+    const upd = await admin
+      .from("events")
+      .update({ attachments: next })
+      .eq("id", eventId);
+    if (upd.error && !isUnknownColumnError(upd.error.message, ["attachments"])) {
+      console.warn("[events.upsertAttachment] update:", upd.error.message);
+    }
+    return;
+  }
+  const next = [...current, incoming];
+  const upd = await admin
+    .from("events")
+    .update({ attachments: next })
+    .eq("id", eventId);
+  if (upd.error && !isUnknownColumnError(upd.error.message, ["attachments"])) {
+    console.warn("[events.upsertAttachment] insert:", upd.error.message);
+  }
 }
 
 /**
@@ -255,16 +388,22 @@ const EXTENDED_COLUMNS = [
   "ticket_url",
   // phase17
   "document_id",
+  // phase18
+  "attachments",
 ] as const;
 
 async function insertEventCompat(
   admin: SupabaseClient,
-  row: EventRow
+  row: EventRow | Record<string, unknown>
 ): Promise<{ error?: string }> {
-  const { error } = await admin.from("events").insert(row);
+  const payload = { ...(row as Record<string, unknown>) };
+  // `attachment` — поле вызывающего кода (singular), в колонку идёт
+  // массив `attachments` (plural). Убираем singular, если остался.
+  delete payload.attachment;
+  const { error } = await admin.from("events").insert(payload);
   if (!error) return {};
   if (isUnknownColumnError(error.message, EXTENDED_COLUMNS)) {
-    const stripped: Record<string, unknown> = { ...row };
+    const stripped: Record<string, unknown> = { ...payload };
     for (const c of EXTENDED_COLUMNS) delete stripped[c];
     const { error: retry } = await admin.from("events").insert(stripped);
     if (!retry) return {};
@@ -419,6 +558,9 @@ export async function createEventsForFlight(
         map_embed_url: null,
         links: extras.links,
         document_id: documentId,
+        attachment: documentId
+          ? { document_id: documentId, label: null }
+          : null,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -473,6 +615,7 @@ export async function createEventsForFlight(
     map_embed_url: null,
     links: extras.links,
     document_id: documentId,
+    attachment: documentId ? { document_id: documentId, label: null } : null,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
@@ -592,6 +735,9 @@ export async function createEventsForStay(
         map_embed_url: mapEmbed,
         links: baseLinks,
         document_id: documentId,
+        attachment: documentId
+          ? { document_id: documentId, label: null }
+          : null,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -627,6 +773,9 @@ export async function createEventsForStay(
         map_embed_url: null,
         links: baseLinks,
         document_id: documentId,
+        attachment: documentId
+          ? { document_id: documentId, label: null }
+          : null,
       });
       if (ok) count++;
       affected.push(dayId);
@@ -752,6 +901,7 @@ export async function createEventsForExpense(
     ticket_url: ticketUrl,
     tour_details: hasAnyTourField ? tourDetails : null,
     document_id: documentId,
+    attachment: documentId ? { document_id: documentId, label: null } : null,
   });
   await refreshDayDetail(admin, dayId);
   return ok ? 1 : 0;
