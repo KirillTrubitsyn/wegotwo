@@ -8,6 +8,7 @@ import { rebuildTripEvents } from "@/lib/ingest/rebuild";
 import { DOCS_BUCKET } from "@/lib/docs/storage";
 import { parseDocument, type TripContext } from "@/lib/gemini/client";
 import { commitParsedDocument } from "@/lib/ingest/commit";
+import { buildFlightLinks } from "@/lib/ingest/events";
 
 const EVENT_KINDS = [
   "meal",
@@ -20,6 +21,8 @@ const EVENT_KINDS = [
 ] as const;
 
 const timeRe = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+const iataRe = /^[A-Za-z]{3}$/;
 
 const eventSchema = z
   .object({
@@ -44,6 +47,27 @@ const eventSchema = z
       .max(500)
       .optional()
       .or(z.literal("")),
+    // Flight-specific поля (только для kind=flight). Все опциональные —
+    // событие можно создать и без них, тогда будет базовая карточка.
+    // Если указаны — рендерим полноценный flight event с ✈️ emoji,
+    // ссылкой на сайт авиакомпании, табло аэропортов (как на Day 1).
+    airline: z.string().trim().max(80).optional().or(z.literal("")),
+    flight_code: z.string().trim().max(20).optional().or(z.literal("")),
+    from_code: z
+      .string()
+      .trim()
+      .regex(iataRe, "IATA-код — 3 буквы")
+      .optional()
+      .or(z.literal("")),
+    to_code: z
+      .string()
+      .trim()
+      .regex(iataRe, "IATA-код — 3 буквы")
+      .optional()
+      .or(z.literal("")),
+    terminal: z.string().trim().max(40).optional().or(z.literal("")),
+    seat: z.string().trim().max(10).optional().or(z.literal("")),
+    pnr: z.string().trim().max(20).optional().or(z.literal("")),
   })
   .refine(
     (v) =>
@@ -70,6 +94,44 @@ function extractEvent(formData: FormData) {
     end_time: String(formData.get("end_time") ?? ""),
     notes: String(formData.get("notes") ?? ""),
     map_url: String(formData.get("map_url") ?? ""),
+    airline: String(formData.get("airline") ?? ""),
+    flight_code: String(formData.get("flight_code") ?? ""),
+    from_code: String(formData.get("from_code") ?? "").toUpperCase(),
+    to_code: String(formData.get("to_code") ?? "").toUpperCase(),
+    terminal: String(formData.get("terminal") ?? ""),
+    seat: String(formData.get("seat") ?? ""),
+    pnr: String(formData.get("pnr") ?? ""),
+  };
+}
+
+/**
+ * Собирает enrichment-поля для ручного flight-события.
+ * Если авиакомпания/маршрут заданы — возвращаем ✈️ emoji, сайт
+ * перевозчика, телефон, ссылки на табло аэропортов (то же, что
+ * ingest генерирует для Day 1). Для других типов событий или
+ * пустых полей возвращаем null-ы, и событие создаётся без обвеса.
+ */
+function buildFlightEnrichment(data: z.infer<typeof eventSchema>) {
+  if (data.kind !== "flight") return null;
+  const hasRoute = !!(data.airline || data.flight_code || data.from_code || data.to_code);
+  if (!hasRoute) return null;
+  const enr = buildFlightLinks(
+    data.airline || null,
+    data.flight_code || null,
+    data.from_code || null,
+    data.to_code || null
+  );
+  const notesExtras = [
+    data.pnr ? `PNR: ${data.pnr}` : null,
+    data.seat ? `Место: ${data.seat}` : null,
+    data.terminal ? `Терминал: ${data.terminal}` : null,
+  ].filter(Boolean);
+  return {
+    emoji: "✈️",
+    website: enr.website,
+    phone: enr.phone,
+    links: enr.links,
+    notesExtras,
   };
 }
 
@@ -193,17 +255,31 @@ export async function createEventAction(
 
   const sortOrder = await nextSortOrder(ctx.day.id);
 
-  const { error } = await admin.from("events").insert({
+  const enr = buildFlightEnrichment(parsed.data);
+  const userNotes = (parsed.data.notes || "").trim();
+  const combinedNotes = enr
+    ? [userNotes, enr.notesExtras.join(" · ")].filter(Boolean).join(" · ")
+    : userNotes;
+
+  const insertRow: Record<string, unknown> = {
     trip_id: ctx.trip.id,
     day_id: ctx.day.id,
     title: parsed.data.title,
     kind: parsed.data.kind,
     start_at,
     end_at,
-    notes: parsed.data.notes || null,
+    notes: combinedNotes || null,
     map_url: parsed.data.map_url || null,
     sort_order: sortOrder,
-  });
+  };
+  if (enr) {
+    insertRow.emoji = enr.emoji;
+    insertRow.website = enr.website;
+    insertRow.phone = enr.phone;
+    insertRow.links = enr.links;
+  }
+
+  const { error } = await admin.from("events").insert(insertRow);
 
   if (error) return { ok: false, form: error.message };
 
@@ -239,16 +315,30 @@ export async function updateEventAction(
     ? combineDateTime(ctx.day.date, parsed.data.end_time, ctx.trip.primary_tz)
     : null;
 
+  const enr = buildFlightEnrichment(parsed.data);
+  const userNotes = (parsed.data.notes || "").trim();
+  const combinedNotes = enr
+    ? [userNotes, enr.notesExtras.join(" · ")].filter(Boolean).join(" · ")
+    : userNotes;
+
+  const patch: Record<string, unknown> = {
+    title: parsed.data.title,
+    kind: parsed.data.kind,
+    start_at,
+    end_at,
+    notes: combinedNotes || null,
+    map_url: parsed.data.map_url || null,
+  };
+  if (enr) {
+    patch.emoji = enr.emoji;
+    patch.website = enr.website;
+    patch.phone = enr.phone;
+    patch.links = enr.links;
+  }
+
   const { error } = await admin
     .from("events")
-    .update({
-      title: parsed.data.title,
-      kind: parsed.data.kind,
-      start_at,
-      end_at,
-      notes: parsed.data.notes || null,
-      map_url: parsed.data.map_url || null,
-    })
+    .update(patch)
     .eq("id", eventId)
     .eq("day_id", ctx.day.id);
 
