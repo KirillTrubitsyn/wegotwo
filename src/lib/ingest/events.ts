@@ -462,7 +462,7 @@ function isUnknownColumnError(
   );
 }
 
-function buildFlightLinks(
+export function buildFlightLinks(
   airline: string | null | undefined,
   code: string | null | undefined,
   fromCode: string | null | undefined,

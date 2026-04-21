@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EventActionState } from "../../actions";
 
@@ -28,6 +28,13 @@ type Props = {
     end_time?: string | null;
     notes?: string | null;
     map_url?: string | null;
+    airline?: string | null;
+    flight_code?: string | null;
+    from_code?: string | null;
+    to_code?: string | null;
+    terminal?: string | null;
+    seat?: string | null;
+    pnr?: string | null;
   };
   submitLabel: string;
 };
@@ -43,6 +50,7 @@ export default function EventForm({
 }: Props) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(action, empty);
+  const [kind, setKind] = useState<string>(initial?.kind ?? "other");
 
   if (state.ok && state !== empty && !pending) {
     // Success: go back to the day detail
@@ -87,6 +95,7 @@ export default function EventForm({
                 name="kind"
                 value={k.value}
                 defaultChecked={(initial?.kind ?? "other") === k.value}
+                onChange={(e) => setKind(e.currentTarget.value)}
                 className="peer sr-only"
               />
               <span className="inline-flex items-center gap-[6px] px-[12px] py-[7px] rounded-badge text-[12px] font-medium bg-bg-surface text-text-sec border border-transparent peer-checked:bg-white peer-checked:border-blue peer-checked:text-text-main cursor-pointer">
@@ -116,6 +125,86 @@ export default function EventForm({
           />
         </Field>
       </div>
+
+      {kind === "flight" && (
+        <div className="space-y-3 rounded-btn bg-bg-surface/60 p-3">
+          <div className="text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold">
+            Рейс
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Авиакомпания">
+              <input
+                name="airline"
+                defaultValue={initial?.airline ?? ""}
+                maxLength={80}
+                placeholder="Air Serbia"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+              />
+            </Field>
+            <Field label="Номер рейса">
+              <input
+                name="flight_code"
+                defaultValue={initial?.flight_code ?? ""}
+                maxLength={20}
+                placeholder="JU 134"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Откуда (IATA)" error={fields.from_code}>
+              <input
+                name="from_code"
+                defaultValue={initial?.from_code ?? ""}
+                maxLength={3}
+                placeholder="BEG"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none uppercase"
+              />
+            </Field>
+            <Field label="Куда (IATA)" error={fields.to_code}>
+              <input
+                name="to_code"
+                defaultValue={initial?.to_code ?? ""}
+                maxLength={3}
+                placeholder="SVO"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none uppercase"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Терминал">
+              <input
+                name="terminal"
+                defaultValue={initial?.terminal ?? ""}
+                maxLength={40}
+                placeholder="2"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+              />
+            </Field>
+            <Field label="Место">
+              <input
+                name="seat"
+                defaultValue={initial?.seat ?? ""}
+                maxLength={10}
+                placeholder="12A"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+              />
+            </Field>
+            <Field label="PNR">
+              <input
+                name="pnr"
+                defaultValue={initial?.pnr ?? ""}
+                maxLength={20}
+                placeholder="ABCD12"
+                className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none uppercase"
+              />
+            </Field>
+          </div>
+          <p className="text-[11px] text-text-sec">
+            Название события пишется в «Название» сверху. Например: «Air Serbia JU 134: Белград → Москва».
+          </p>
+        </div>
+      )}
 
       <Field label="Заметки" error={fields.notes}>
         <textarea
