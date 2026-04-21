@@ -4,6 +4,7 @@ const config: Config = {
   content: [
     "./src/app/**/*.{ts,tsx}",
     "./src/components/**/*.{ts,tsx}",
+    "./src/lib/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {
@@ -23,6 +24,16 @@ const config: Config = {
         "green-lt": "#EDFAF1",
         purple: "#8B5CF6",
         "purple-lt": "#F3EEFF",
+        orange: "#F97316",
+        "orange-lt": "#FFF7ED",
+        teal: "#0D9488",
+        "teal-lt": "#F0FDFA",
+        pink: "#EC4899",
+        "pink-lt": "#FDF2F8",
+        indigo: "#4F46E5",
+        "indigo-lt": "#EEF2FF",
+        sky: "#0EA5E9",
+        "sky-lt": "#F0F9FF",
       },
       fontFamily: {
         sans: [
