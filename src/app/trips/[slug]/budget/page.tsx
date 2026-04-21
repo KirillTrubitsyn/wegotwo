@@ -13,7 +13,7 @@ import BudgetBody, {
   type ExpenseMeta,
 } from "./BudgetBody";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 type Trip = {
   id: string;

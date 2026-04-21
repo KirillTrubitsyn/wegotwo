@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { DOC_KIND_LABELS, formatBytes, labelForKind } from "@/lib/docs/labels";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 type Trip = {
   id: string;

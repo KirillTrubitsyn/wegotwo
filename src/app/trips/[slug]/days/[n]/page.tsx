@@ -18,7 +18,7 @@ import { formatTimeInTz } from "@/lib/format-tz";
 import { displayDayDetail } from "@/lib/ingest/day-detail";
 import { deleteEventAction, updateDayMetaAction } from "../actions";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 /**
  * Обрезает расширение файла и приводит к короткой подписи, чтобы
@@ -227,27 +227,9 @@ export default async function DayDetailPage({
   const photoPaths = rawEvents
     .map((e) => e.photo_path)
     .filter((p): p is string => typeof p === "string" && p.length > 0);
-  let photoUrlByPath = new Map<string, string>();
-  if (photoPaths.length > 0) {
-    const { data: signed } = await admin.storage
-      .from("photos")
-      .createSignedUrls(photoPaths, 3600);
-    photoUrlByPath = new Map(
-      (signed ?? [])
-        .map((s, i) => [photoPaths[i], s.signedUrl] as const)
-        .filter((pair): pair is readonly [string, string] =>
-          typeof pair[1] === "string" && pair[1].length > 0
-        )
-    );
-  }
 
-  // Подтягиваем сторадж-пути документов, связанных с событиями, и
-  // генерим signed URL на каждый — чтобы в Timeline была кнопка
-  // «🎫 Билет», открывающая исходный файл (Tripster PDF, посадочный).
-  //
-  // Для событий с `attachments` (phase 18: несколько посадочных на
-  // один рейс) собираем все document_id из массивов — это и даёт
-  // несколько кнопок «Билет Кирилла / Билет Марины».
+  // Собираем document_id из events.document_id (legacy) и из
+  // events.attachments (phase 18 — несколько посадочных на рейс).
   const docIdSet = new Set<string>();
   for (const e of rawEvents) {
     if (e.document_id) docIdSet.add(e.document_id);
@@ -256,39 +238,62 @@ export default async function DayDetailPage({
     }
   }
   const docIds = Array.from(docIdSet);
-  const ticketUrlByDoc = new Map<string, string>();
-  const docTitleById = new Map<string, string>();
-  if (docIds.length > 0) {
-    const { data: docRows } = await admin
-      .from("documents")
-      .select("id,storage_path,title")
-      .in("id", docIds);
-    const rows = (docRows ?? []) as Array<{
-      id: string;
-      storage_path: string;
-      title: string | null;
-    }>;
-    for (const r of rows) {
-      if (r.title) docTitleById.set(r.id, r.title);
-    }
-    const paths = rows.map((d) => d.storage_path);
-    if (paths.length > 0) {
+
+  // Подписывание URL-ов фото и выборка документов по событию
+  // независимы — гоним параллельно, чтобы не ждать два round-trip'а
+  // подряд. Внутри doc-ветки последовательность сохраняется: сначала
+  // читаем documents, потом подписываем их storage_path.
+  const [photoUrlByPath, docData] = await Promise.all([
+    (async () => {
+      if (photoPaths.length === 0) return new Map<string, string>();
       const { data: signed } = await admin.storage
-        .from("documents")
-        .createSignedUrls(paths, 3600);
-      const signedByPath = new Map(
+        .from("photos")
+        .createSignedUrls(photoPaths, 3600);
+      return new Map(
         (signed ?? [])
-          .map((s, i) => [paths[i], s.signedUrl] as const)
+          .map((s, i) => [photoPaths[i], s.signedUrl] as const)
           .filter((pair): pair is readonly [string, string] =>
             typeof pair[1] === "string" && pair[1].length > 0
           )
       );
-      for (const d of rows) {
-        const u = signedByPath.get(d.storage_path);
-        if (u) ticketUrlByDoc.set(d.id, u);
+    })(),
+    (async () => {
+      const ticketUrlByDoc = new Map<string, string>();
+      const docTitleById = new Map<string, string>();
+      if (docIds.length === 0) return { ticketUrlByDoc, docTitleById };
+      const { data: docRows } = await admin
+        .from("documents")
+        .select("id,storage_path,title")
+        .in("id", docIds);
+      const rows = (docRows ?? []) as Array<{
+        id: string;
+        storage_path: string;
+        title: string | null;
+      }>;
+      for (const r of rows) {
+        if (r.title) docTitleById.set(r.id, r.title);
       }
-    }
-  }
+      const paths = rows.map((d) => d.storage_path);
+      if (paths.length > 0) {
+        const { data: signed } = await admin.storage
+          .from("documents")
+          .createSignedUrls(paths, 3600);
+        const signedByPath = new Map(
+          (signed ?? [])
+            .map((s, i) => [paths[i], s.signedUrl] as const)
+            .filter((pair): pair is readonly [string, string] =>
+              typeof pair[1] === "string" && pair[1].length > 0
+            )
+        );
+        for (const d of rows) {
+          const u = signedByPath.get(d.storage_path);
+          if (u) ticketUrlByDoc.set(d.id, u);
+        }
+      }
+      return { ticketUrlByDoc, docTitleById };
+    })(),
+  ]);
+  const { ticketUrlByDoc, docTitleById } = docData;
 
   /**
    * Строим список TimelineAttachment для одного события.

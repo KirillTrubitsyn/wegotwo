@@ -11,7 +11,7 @@ import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { displayDayDetail } from "@/lib/ingest/day-detail";
 import RebuildTimelineButton from "./RebuildTimelineButton";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 type Trip = {
   id: string;
