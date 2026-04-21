@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
 import { swatch, type TripColor } from "@/lib/trip-colors";
@@ -59,12 +60,13 @@ export default function TripCard({
         }`}
       >
         {coverUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={coverUrl}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover"
-            loading="eager"
+            fill
+            sizes="(max-width: 480px) 100vw, 440px"
+            className="object-cover"
+            priority
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/60" />
@@ -92,11 +94,12 @@ export default function TripCard({
       } ${muted ? "opacity-80" : ""}`}
     >
       {coverUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Image
           src={coverUrl}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover"
+          fill
+          sizes="(max-width: 480px) 50vw, 220px"
+          className="object-cover"
           loading="lazy"
         />
       )}

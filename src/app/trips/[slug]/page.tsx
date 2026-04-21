@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -220,12 +221,12 @@ export default async function TripOverviewPage({
                     className="relative block rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[16/9] active:opacity-90"
                   >
                     {photoUrl && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
+                      <Image
                         src={photoUrl}
                         alt={d.name}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        loading="lazy"
+                        fill
+                        sizes="(max-width: 480px) 100vw, 440px"
+                        className="object-cover"
                       />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />
