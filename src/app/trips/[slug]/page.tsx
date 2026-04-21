@@ -227,6 +227,7 @@ export default async function TripOverviewPage({
                         fill
                         sizes="(max-width: 480px) 100vw, 440px"
                         className="object-cover"
+                        unoptimized
                       />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />

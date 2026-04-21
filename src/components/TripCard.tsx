@@ -67,6 +67,7 @@ export default function TripCard({
             sizes="(max-width: 480px) 100vw, 440px"
             className="object-cover"
             priority
+            unoptimized
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/60" />
@@ -101,6 +102,7 @@ export default function TripCard({
           sizes="(max-width: 480px) 50vw, 220px"
           className="object-cover"
           loading="lazy"
+          unoptimized
         />
       )}
       <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/55" />
