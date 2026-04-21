@@ -181,12 +181,12 @@ export default function EventForm({
                 className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
               />
             </Field>
-            <Field label="Место">
+            <Field label="Места">
               <input
                 name="seat"
                 defaultValue={initial?.seat ?? ""}
-                maxLength={10}
-                placeholder="12A"
+                maxLength={50}
+                placeholder="12A, 12B"
                 className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
               />
             </Field>
@@ -200,6 +200,41 @@ export default function EventForm({
               />
             </Field>
           </div>
+
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold mb-2">
+              Кнопки на карточке
+            </label>
+            <div className="space-y-2">
+              <LinkToggle
+                name="include_airline"
+                label="Сайт авиакомпании"
+                defaultChecked
+              />
+              <LinkToggle
+                name="include_board_from"
+                label="Табло аэропорта вылета"
+                defaultChecked
+              />
+              <LinkToggle
+                name="include_board_to"
+                label="Табло аэропорта прилёта"
+                defaultChecked
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.5px] text-text-sec font-semibold mb-2">
+              Свои ссылки
+            </label>
+            <div className="space-y-2">
+              <ExtraLinkRow index={1} />
+              <ExtraLinkRow index={2} />
+              <ExtraLinkRow index={3} />
+            </div>
+          </div>
+
           <p className="text-[11px] text-text-sec">
             Название события пишется в «Название» сверху. Например: «Air Serbia JU 134: Белград → Москва».
           </p>
@@ -268,6 +303,48 @@ function Field({
       {error && (
         <div className="text-[12px] text-accent mt-1">{error}</div>
       )}
+    </div>
+  );
+}
+
+function LinkToggle({
+  name,
+  label,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  defaultChecked?: boolean;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[13px] text-text-main cursor-pointer">
+      <input
+        type="checkbox"
+        name={name}
+        defaultChecked={defaultChecked}
+        className="h-4 w-4 accent-blue"
+      />
+      {label}
+    </label>
+  );
+}
+
+function ExtraLinkRow({ index }: { index: number }) {
+  return (
+    <div className="grid grid-cols-[1fr_2fr] gap-2">
+      <input
+        name={`extra_label_${index}`}
+        maxLength={40}
+        placeholder="Название"
+        className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+      />
+      <input
+        name={`extra_url_${index}`}
+        type="url"
+        maxLength={500}
+        placeholder="https://..."
+        className="w-full bg-white rounded-btn px-3 py-[10px] text-[14px] text-text-main border border-transparent focus:border-blue focus:outline-none"
+      />
     </div>
   );
 }
