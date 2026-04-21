@@ -10,6 +10,7 @@ import {
   type EventActionState,
 } from "../../../actions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { formatTimeInTz } from "@/lib/format-tz";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,10 @@ type Trip = {
   id: string;
   slug: string;
   primary_tz: string;
+  country: string | null;
+  color: string;
+  date_to: string;
+  archived_at: string | null;
 };
 
 type DayRow = {
@@ -61,19 +66,25 @@ export default async function EditEventPage({
   const admin = createAdminClient();
   const { data: tripData } = await admin
     .from("trips")
-    .select("id,slug,primary_tz")
+    .select("id,slug,primary_tz,country,color,date_to,archived_at")
     .eq("slug", slug)
     .maybeSingle();
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: days } = await admin
-    .from("days")
-    .select("id,date")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+  const [{ data: days }, stayCity] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
+  ]);
   const day = ((days ?? []) as DayRow[])[dayNumber - 1];
   if (!day) notFound();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const isPast = Boolean(trip.archived_at) || trip.date_to < today;
 
   const { data: eventData } = await admin
     .from("events")
@@ -138,6 +149,22 @@ export default async function EditEventPage({
         title="Изменить событие"
         subtitle={`День ${dayNumber}`}
         back={`/trips/${slug}/days/${dayNumber}`}
+        trip={
+          !isPast
+            ? {
+                primaryTz: trip.primary_tz,
+                color: trip.color,
+                clockLabel:
+                  stayCity?.label ??
+                  (trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
+                hideClock: false,
+              }
+            : null
+        }
       />
       <div className="px-5 pb-24 pt-4 space-y-6">
         <EventForm
