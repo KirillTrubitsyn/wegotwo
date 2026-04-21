@@ -520,6 +520,9 @@ export async function createEventsForFlight(
   // (по дате вылета этого сегмента). Если сегментов нет — падаем на
   // старый путь и создаём одно событие по top-level полям.
   const segs = f.segments ?? [];
+  console.log(
+    `[events.flight] doc=${documentId ?? "-"} segments=${segs.length} top_route=${f.from_code ?? "?"}→${f.to_code ?? "?"}@${f.dep_at ?? "?"}`
+  );
   if (segs.length > 0) {
     let count = 0;
     for (const seg of segs) {
