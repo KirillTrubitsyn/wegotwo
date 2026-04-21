@@ -184,7 +184,7 @@ export default function TripForm({
 
       <Field label="Акцентный цвет" error={fieldErr?.color}>
         <input type="hidden" name="color" value={color} />
-        <div className="flex gap-[10px]">
+        <div className="flex flex-wrap gap-[10px]">
           {TRIP_COLORS.map((key) => {
             const s = swatch(key);
             const active = color === key;
@@ -193,6 +193,7 @@ export default function TripForm({
                 key={key}
                 type="button"
                 aria-label={s.label}
+                title={s.label}
                 onClick={() => setColor(key)}
                 className={`w-10 h-10 rounded-full ${s.bg} transition-transform ${
                   active
@@ -203,6 +204,9 @@ export default function TripForm({
             );
           })}
         </div>
+        {color && (
+          <p className="mt-1 text-xs text-text-sec">{swatch(color).label}</p>
+        )}
       </Field>
 
       <Field label="Маршрут, кратко" error={fieldErr?.route_summary}>
