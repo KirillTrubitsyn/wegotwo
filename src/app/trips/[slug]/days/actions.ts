@@ -66,8 +66,20 @@ const eventSchema = z
       .optional()
       .or(z.literal("")),
     terminal: z.string().trim().max(40).optional().or(z.literal("")),
-    seat: z.string().trim().max(10).optional().or(z.literal("")),
+    seat: z.string().trim().max(50).optional().or(z.literal("")),
     pnr: z.string().trim().max(20).optional().or(z.literal("")),
+    // Какие авто-кнопки выводить на карточке события. Чекбоксы шлют
+    // "on" когда отмечены, пустой/отсутствующий — значит выключено.
+    include_airline: z.string().optional().or(z.literal("")),
+    include_board_from: z.string().optional().or(z.literal("")),
+    include_board_to: z.string().optional().or(z.literal("")),
+    // До 3 произвольных ссылок (label + url). Пустые — игнорируются.
+    extra_label_1: z.string().trim().max(40).optional().or(z.literal("")),
+    extra_url_1: z.string().trim().max(500).optional().or(z.literal("")),
+    extra_label_2: z.string().trim().max(40).optional().or(z.literal("")),
+    extra_url_2: z.string().trim().max(500).optional().or(z.literal("")),
+    extra_label_3: z.string().trim().max(40).optional().or(z.literal("")),
+    extra_url_3: z.string().trim().max(500).optional().or(z.literal("")),
   })
   .refine(
     (v) =>
@@ -101,6 +113,15 @@ function extractEvent(formData: FormData) {
     terminal: String(formData.get("terminal") ?? ""),
     seat: String(formData.get("seat") ?? ""),
     pnr: String(formData.get("pnr") ?? ""),
+    include_airline: String(formData.get("include_airline") ?? ""),
+    include_board_from: String(formData.get("include_board_from") ?? ""),
+    include_board_to: String(formData.get("include_board_to") ?? ""),
+    extra_label_1: String(formData.get("extra_label_1") ?? ""),
+    extra_url_1: String(formData.get("extra_url_1") ?? ""),
+    extra_label_2: String(formData.get("extra_label_2") ?? ""),
+    extra_url_2: String(formData.get("extra_url_2") ?? ""),
+    extra_label_3: String(formData.get("extra_label_3") ?? ""),
+    extra_url_3: String(formData.get("extra_url_3") ?? ""),
   };
 }
 
@@ -115,22 +136,43 @@ function buildFlightEnrichment(data: z.infer<typeof eventSchema>) {
   if (data.kind !== "flight") return null;
   const hasRoute = !!(data.airline || data.flight_code || data.from_code || data.to_code);
   if (!hasRoute) return null;
+  // Чекбоксы: "on" — включено, иначе пусто. Передаём buildFlightLinks
+  // null для тех ссылок, которые юзер отключил, — тогда соответствующая
+  // кнопка не генерируется.
+  const incAirline = data.include_airline === "on";
+  const incBoardFrom = data.include_board_from === "on";
+  const incBoardTo = data.include_board_to === "on";
   const enr = buildFlightLinks(
-    data.airline || null,
-    data.flight_code || null,
-    data.from_code || null,
-    data.to_code || null
+    incAirline ? data.airline || null : null,
+    incAirline ? data.flight_code || null : null,
+    incBoardFrom ? data.from_code || null : null,
+    incBoardTo ? data.to_code || null : null
   );
+  // Произвольные ссылки — валидные пары label + url.
+  const extras: Array<{ label: string; url: string; icon?: string; kind?: "other" }> =
+    [];
+  const pairs: Array<[string | undefined, string | undefined]> = [
+    [data.extra_label_1, data.extra_url_1],
+    [data.extra_label_2, data.extra_url_2],
+    [data.extra_label_3, data.extra_url_3],
+  ];
+  for (const [label, url] of pairs) {
+    const l = (label ?? "").trim();
+    const u = (url ?? "").trim();
+    if (l && u) extras.push({ label: l, url: u, icon: "🔗", kind: "other" });
+  }
+  const seatRaw = (data.seat ?? "").trim();
+  const seatLabel = seatRaw.includes(",") ? "Места" : "Место";
   const notesExtras = [
     data.pnr ? `PNR: ${data.pnr}` : null,
-    data.seat ? `Место: ${data.seat}` : null,
+    seatRaw ? `${seatLabel}: ${seatRaw}` : null,
     data.terminal ? `Терминал: ${data.terminal}` : null,
   ].filter(Boolean);
   return {
     emoji: "✈️",
-    website: enr.website,
-    phone: enr.phone,
-    links: enr.links,
+    website: incAirline ? enr.website : null,
+    phone: incAirline ? enr.phone : null,
+    links: [...enr.links, ...extras],
     notesExtras,
   };
 }
