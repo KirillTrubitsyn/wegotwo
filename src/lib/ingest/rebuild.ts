@@ -150,13 +150,20 @@ export async function rebuildTripEvents(
   }
   let flightEvents = 0;
   type FlightRow = Omit<FlightFields, "segments"> & {
+    id: string;
     segments: unknown;
     document_id: string | null;
   };
+  console.log(
+    `[rebuild] trip=${trip.id} flights_rows=${(flightRows ?? []).length}`
+  );
   for (const raw of (flightRows ?? []) as FlightRow[]) {
     const segs = Array.isArray(raw.segments)
       ? (raw.segments as FlightFields["segments"])
       : [];
+    console.log(
+      `[rebuild.flight] row=${raw.id} doc=${raw.document_id ?? "-"} segments=${segs.length} top=${raw.from_code ?? "?"}→${raw.to_code ?? "?"}@${raw.dep_at ?? "?"}`
+    );
     const r: FlightFields = {
       airline: raw.airline,
       code: raw.code,

@@ -240,6 +240,12 @@ async function commitFlight(
     raw: f,
   };
 
+  console.log(
+    `[commit.flight] doc=${docId} segments=${segs.length} code=${topLevel.code ?? "-"} route=${topLevel.from_code ?? "?"}→${topLevel.to_code ?? "?"} legs=${segs
+      .map((s) => `${s.from_code ?? "?"}→${s.to_code ?? "?"}@${s.dep_at ?? "?"}`)
+      .join("|")}`
+  );
+
   // Если flights-строка уже есть (reparse того же PDF), обновляем
   // её свежими полями — иначе новые сегменты round-trip билета не
   // попадают в БД и обратный рейс никогда не создаётся.
@@ -256,12 +262,16 @@ async function commitFlight(
       .update(payload)
       .eq("id", id);
     if (updErr) {
+      console.error(`[commit.flight] update doc=${docId}:`, updErr.message);
       return { ok: false, error: updErr.message };
     }
     await admin
       .from("documents")
       .update({ parsed_status: "parsed", kind: "flight" })
       .eq("id", docId);
+    console.log(
+      `[commit.flight] updated row=${id} segments_written=${segs.length}`
+    );
     return { ok: true, kind: "flight", rowId: id, created: false };
   }
 
