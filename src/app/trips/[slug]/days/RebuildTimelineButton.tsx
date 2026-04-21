@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { rebuildTimelineAction } from "./actions";
 
@@ -11,7 +11,8 @@ type ReparseProgress = {
 };
 
 /**
- * Две компактные иконки-кнопки над списком дней:
+ * Меню «⋯» над списком дней: скрывает два действия под одной
+ * кнопкой в хэдере.
  *   🔄 — быстро пересобрать события из текущих parsed_fields.
  *   🧠 — перечитать все документы через Gemini (итеративно, по
  *        одному через /api/trips/{slug}/reparse/one, чтобы не
@@ -23,16 +24,39 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
   const [reparsePending, setReparsePending] = useState(false);
   const [progress, setProgress] = useState<ReparseProgress | null>(null);
   const [done, setDone] = useState<"rebuild" | "reparse" | null>(null);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const triggerRebuild = () =>
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  const triggerRebuild = () => {
+    setOpen(false);
     startRebuild(async () => {
       await rebuildTimelineAction(slug);
       setDone("rebuild");
       router.refresh();
     });
+  };
 
   const triggerReparse = async () => {
+    setOpen(false);
     if (
       !confirm(
         "Перечитать все документы через Gemini? Это займёт несколько минут (по ~10–30 сек на документ) и делает платные вызовы ИИ."
@@ -43,7 +67,6 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
     setReparsePending(true);
     setProgress(null);
     try {
-      // 1. Получить список docId.
       const listRes = await fetch(`/api/trips/${slug}/reparse/list`, {
         method: "GET",
       });
@@ -62,9 +85,6 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
         return;
       }
 
-      // 2. Прогоняем документы параллельно, пачками по CONCURRENCY.
-      //    Каждый вызов ~10 сек на Gemini; последовательно было бы
-      //    N*10 сек. Три одновременно = ~N*3.3 сек.
       const CONCURRENCY = 3;
       let doneN = 0;
       let failed = 0;
@@ -95,7 +115,6 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
         await Promise.all(chunk.map(processOne));
       }
 
-      // 3. Финальный rebuild, чтобы собранные tour_details попали на события.
       await rebuildTimelineAction(slug);
       setDone("reparse");
       alert(
@@ -110,54 +129,75 @@ export default function RebuildTimelineButton({ slug }: { slug: string }) {
     }
   };
 
-  const reparseLabel = progress
+  const busy = rebuildPending || reparsePending;
+  const triggerLabel = rebuildPending
+    ? "🔄"
+    : reparsePending && progress
     ? `${progress.done}/${progress.total}`
-    : done === "reparse" && !reparsePending
-    ? "✓"
-    : "🧠";
+    : reparsePending
+    ? "🧠"
+    : "⋯";
+
+  const reparseMenuLabel = reparsePending
+    ? progress
+      ? `Перечитываем документы… ${progress.done}/${progress.total}`
+      : "Перечитываем документы…"
+    : done === "reparse"
+    ? "Документы перечитаны ✓"
+    : "Перечитать документы через Gemini";
+
+  const rebuildMenuLabel = rebuildPending
+    ? "Пересобираем таймлайн…"
+    : done === "rebuild"
+    ? "Таймлайн пересобран ✓"
+    : "Пересобрать таймлайн";
 
   return (
-    <div className="flex items-center gap-[6px]">
+    <div className="relative" ref={rootRef}>
       <button
         type="button"
-        title={
-          rebuildPending
-            ? "Обновляем…"
-            : "Пересобрать таймлайн из текущих данных"
-        }
-        aria-label="Пересобрать таймлайн"
-        disabled={rebuildPending || reparsePending}
-        onClick={triggerRebuild}
-        className="inline-flex items-center justify-center w-[32px] h-[32px] rounded-[8px] bg-blue-lt text-blue border border-blue/20 hover:bg-blue/15 disabled:opacity-60"
+        aria-label="Действия поездки"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center justify-center min-w-[32px] h-[32px] px-[6px] rounded-[10px] text-text-mut hover:bg-bg-surface"
       >
         <span
-          className={`text-[16px] leading-none ${
+          className={`text-[18px] leading-none tracking-[2px] tnum ${
             rebuildPending ? "animate-spin" : ""
-          }`}
+          } ${reparsePending && !progress ? "animate-pulse" : ""}`}
+          aria-hidden="true"
         >
-          {done === "rebuild" && !rebuildPending ? "✓" : "🔄"}
+          {triggerLabel}
         </span>
       </button>
-      <button
-        type="button"
-        title={
-          reparsePending
-            ? `Перечитываем: ${progress?.done ?? 0}/${progress?.total ?? 0}`
-            : "Перечитать все документы через Gemini"
-        }
-        aria-label="Перечитать документы"
-        disabled={rebuildPending || reparsePending}
-        onClick={triggerReparse}
-        className="inline-flex items-center justify-center min-w-[32px] h-[32px] px-[6px] rounded-[8px] bg-gold-lt text-[#8a6200] border border-gold/30 hover:bg-gold/25 disabled:opacity-60"
-      >
-        <span
-          className={`text-[13px] leading-none font-semibold tnum ${
-            reparsePending && !progress ? "animate-pulse" : ""
-          }`}
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[36px] z-30 w-[280px] bg-white rounded-card shadow-card border border-black/[0.06] py-1"
         >
-          {reparseLabel}
-        </span>
-      </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={triggerRebuild}
+            disabled={busy}
+            className="w-full text-left px-3 py-[10px] text-[13px] text-text-main hover:bg-bg-surface disabled:opacity-60 flex items-center gap-[10px]"
+          >
+            <span className="text-[16px] leading-none">🔄</span>
+            <span>{rebuildMenuLabel}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={triggerReparse}
+            disabled={busy}
+            className="w-full text-left px-3 py-[10px] text-[13px] text-text-main hover:bg-bg-surface disabled:opacity-60 flex items-center gap-[10px] border-t border-black/[0.04]"
+          >
+            <span className="text-[16px] leading-none">🧠</span>
+            <span>{reparseMenuLabel}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWeather } from "@/lib/hooks/useWeather";
 import { swatch, type TripColor } from "@/lib/trip-colors";
@@ -32,6 +32,8 @@ type Props = {
   logoSrc?: string | null;
   /** Show a standalone live Moscow clock row under the title. */
   mskClock?: boolean;
+  /** Extra action slot rendered on the right side, before the avatar. */
+  actions?: ReactNode;
 };
 
 const MSK_LABEL = "MSK";
@@ -70,6 +72,7 @@ export default function Header({
   trip,
   logoSrc,
   mskClock,
+  actions,
 }: Props) {
   const [now, setNow] = useState<{ date: string; local: string; msk: string }>(
     { date: "", local: "", msk: "" }
@@ -218,6 +221,7 @@ export default function Header({
           ) : null}
         </div>
         <div className="flex items-center gap-[8px] flex-shrink-0">
+          {actions}
           {weather && (
             <Link
               href={weatherHref}

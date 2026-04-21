@@ -122,14 +122,14 @@ export default async function TripDaysPage({
               }
             : null
         }
+        actions={
+          isActive && days.length > 0 ? (
+            <RebuildTimelineButton slug={trip.slug} />
+          ) : null
+        }
       />
 
       <div className="px-5 pb-28 pt-4 space-y-[10px]">
-        {isActive && days.length > 0 && (
-          <div className="flex justify-end -mt-1 mb-1">
-            <RebuildTimelineButton slug={trip.slug} />
-          </div>
-        )}
         {days.length === 0 ? (
           <div className="rounded-card bg-white shadow-card p-6 text-center mt-4">
             <p className="text-text-main font-medium text-[15px]">
