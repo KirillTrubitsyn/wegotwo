@@ -21,7 +21,10 @@ type Trip = {
 
 type TripWithCover = Trip & { coverUrl: string | null };
 
-export const dynamic = "force-dynamic";
+// ISR: главная кешируется 30 с. Все экшены (createTrip, updateTrip,
+// archiveTrip, deleteTrip) зовут revalidatePath("/"), поэтому список
+// поездок обновляется сразу после любого изменения.
+export const revalidate = 30;
 
 async function loadTrips(): Promise<Trip[]> {
   try {
