@@ -2,6 +2,8 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { TRIP_COLORS, swatch, type TripColor } from "@/lib/trip-colors";
+import { useWeather } from "@/lib/hooks/useWeather";
+import { tzCoords } from "@/lib/tz-coords";
 import type { TripActionState } from "./actions";
 
 const CURRENCIES = ["RUB", "EUR", "USD", "CHF", "GBP"] as const;
@@ -69,7 +71,11 @@ export default function TripForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
   const [color, setColor] = useState<string>(initial?.color ?? "blue");
+  const [primaryTz, setPrimaryTz] = useState(initial?.primary_tz ?? "Europe/Moscow");
   const slugTouched = useRef(!!initial?.slug);
+
+  const tzC = tzCoords(primaryTz);
+  const weather = useWeather({ timezone: primaryTz, lat: tzC?.lat, lon: tzC?.lon });
 
   useEffect(() => {
     if (!slugTouched.current) {
@@ -171,7 +177,8 @@ export default function TripForm({
       <Field label="Часовой пояс" error={fieldErr?.primary_tz}>
         <select
           name="primary_tz"
-          defaultValue={initial?.primary_tz ?? "Europe/Moscow"}
+          value={primaryTz}
+          onChange={(e) => setPrimaryTz(e.target.value)}
           className="input"
         >
           {TZ_PRESETS.map((tz) => (
@@ -180,6 +187,16 @@ export default function TripForm({
             </option>
           ))}
         </select>
+        {weather && (
+          <div className="mt-2 flex items-center gap-[6px] text-[13px] text-text-sec">
+            <span className="text-[16px] leading-none">{weather.icon}</span>
+            <span className="font-mono font-bold text-text-main">
+              {weather.temperature > 0 ? "+" : ""}
+              {weather.temperature}°
+            </span>
+            <span>{weather.description}</span>
+          </div>
+        )}
       </Field>
 
       <Field label="Акцентный цвет" error={fieldErr?.color}>
