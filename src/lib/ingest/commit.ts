@@ -197,20 +197,6 @@ async function commitFlight(
   docId: string,
   f: FlightFields
 ): Promise<CommitResult> {
-  const { data: existing } = await admin
-    .from("flights")
-    .select("id")
-    .eq("trip_id", tripId)
-    .eq("document_id", docId)
-    .maybeSingle();
-  if (existing) {
-    await admin
-      .from("documents")
-      .update({ parsed_status: "parsed" })
-      .eq("id", docId);
-    return { ok: true, kind: "flight", rowId: (existing as { id: string }).id, created: false };
-  }
-
   // Если Gemini вернул массив segments, первый сегмент промоутим в
   // top-level поля (на случай, если Gemini оставил их пустыми).
   // Для top-level code конкатенируем все номера рейсов, чтобы в
@@ -237,26 +223,51 @@ async function commitFlight(
     pnr: f.pnr ?? null,
   };
 
+  const payload = {
+    airline: topLevel.airline,
+    code: topLevel.code,
+    from_code: topLevel.from_code,
+    from_city: topLevel.from_city,
+    to_code: topLevel.to_code,
+    to_city: topLevel.to_city,
+    dep_at: topLevel.dep_at,
+    arr_at: topLevel.arr_at,
+    seat: topLevel.seat,
+    pnr: topLevel.pnr,
+    baggage: topLevel.baggage,
+    terminal: topLevel.terminal,
+    segments: segs,
+    raw: f,
+  };
+
+  // Если flights-строка уже есть (reparse того же PDF), обновляем
+  // её свежими полями — иначе новые сегменты round-trip билета не
+  // попадают в БД и обратный рейс никогда не создаётся.
+  const { data: existing } = await admin
+    .from("flights")
+    .select("id")
+    .eq("trip_id", tripId)
+    .eq("document_id", docId)
+    .maybeSingle();
+  if (existing) {
+    const id = (existing as { id: string }).id;
+    const { error: updErr } = await admin
+      .from("flights")
+      .update(payload)
+      .eq("id", id);
+    if (updErr) {
+      return { ok: false, error: updErr.message };
+    }
+    await admin
+      .from("documents")
+      .update({ parsed_status: "parsed", kind: "flight" })
+      .eq("id", docId);
+    return { ok: true, kind: "flight", rowId: id, created: false };
+  }
+
   const { data, error } = await admin
     .from("flights")
-    .insert({
-      trip_id: tripId,
-      document_id: docId,
-      airline: topLevel.airline,
-      code: topLevel.code,
-      from_code: topLevel.from_code,
-      from_city: topLevel.from_city,
-      to_code: topLevel.to_code,
-      to_city: topLevel.to_city,
-      dep_at: topLevel.dep_at,
-      arr_at: topLevel.arr_at,
-      seat: topLevel.seat,
-      pnr: topLevel.pnr,
-      baggage: topLevel.baggage,
-      terminal: topLevel.terminal,
-      segments: segs,
-      raw: f,
-    })
+    .insert({ trip_id: tripId, document_id: docId, ...payload })
     .select("id")
     .single();
   if (error || !data) {
