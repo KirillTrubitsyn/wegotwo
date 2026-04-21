@@ -14,7 +14,11 @@ import { displayDayDetail } from "@/lib/ingest/day-detail";
 import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
-export const dynamic = "force-dynamic";
+// Кешируем страницу на 30 секунд, чтобы переключение вкладок и
+// возврат с дочерних страниц не всегда пересчитывали всё с нуля.
+// Все мутации зовут revalidatePath(`/trips/${slug}`…), поэтому свежие
+// данные появляются сразу после изменений, без ожидания TTL.
+export const revalidate = 30;
 
 type Trip = {
   id: string;

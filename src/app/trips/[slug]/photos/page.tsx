@@ -8,7 +8,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 const PHOTOS_BUCKET = "photos";
 
