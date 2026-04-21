@@ -246,20 +246,79 @@ async function commitFlight(
       .join("|")}`
   );
 
-  // Если flights-строка уже есть (reparse того же PDF), обновляем
-  // её свежими полями — иначе новые сегменты round-trip билета не
-  // попадают в БД и обратный рейс никогда не создаётся.
-  const { data: existing } = await admin
+  // Если flights-строка уже есть (reparse того же PDF), мёрджим
+  // новый payload со старым: Gemini иногда возвращает частично
+  // пустой результат (особенно на PDF-сканах и многостраничных
+  // round-trip билетах) — тупой update перезапишет уже заполненные
+  // поля null-ами и сломает выдачу.
+  //
+  // Правило: новое значение выигрывает только если оно не-null,
+  // не пустая строка и (для segments) не пустой массив.
+  const { data: existingRow } = await admin
     .from("flights")
-    .select("id")
+    .select(
+      "id,airline,code,from_code,from_city,to_code,to_city,dep_at,arr_at,seat,pnr,baggage,terminal,segments,raw"
+    )
     .eq("trip_id", tripId)
     .eq("document_id", docId)
     .maybeSingle();
-  if (existing) {
-    const id = (existing as { id: string }).id;
+  if (existingRow) {
+    type FlightRowLite = {
+      id: string;
+      airline: string | null;
+      code: string | null;
+      from_code: string | null;
+      from_city: string | null;
+      to_code: string | null;
+      to_city: string | null;
+      dep_at: string | null;
+      arr_at: string | null;
+      seat: string | null;
+      pnr: string | null;
+      baggage: string | null;
+      terminal: string | null;
+      segments: unknown;
+      raw: unknown;
+    };
+    const cur = existingRow as FlightRowLite;
+    const merge = <T>(incoming: T, current: T): T => {
+      if (incoming == null || incoming === "") return current;
+      return incoming;
+    };
+    const curSegs = Array.isArray(cur.segments)
+      ? (cur.segments as FlightFields["segments"])
+      : [];
+    const mergedSegs =
+      segs.length > 0
+        ? segs
+        : curSegs.length > 0
+        ? curSegs
+        : [];
+    const mergedPayload = {
+      airline: merge(payload.airline, cur.airline),
+      code: merge(payload.code, cur.code),
+      from_code: merge(payload.from_code, cur.from_code),
+      from_city: merge(payload.from_city, cur.from_city),
+      to_code: merge(payload.to_code, cur.to_code),
+      to_city: merge(payload.to_city, cur.to_city),
+      dep_at: merge(payload.dep_at, cur.dep_at),
+      arr_at: merge(payload.arr_at, cur.arr_at),
+      seat: merge(payload.seat, cur.seat),
+      pnr: merge(payload.pnr, cur.pnr),
+      baggage: merge(payload.baggage, cur.baggage),
+      terminal: merge(payload.terminal, cur.terminal),
+      segments: mergedSegs,
+      raw: segs.length > 0 || !cur.raw ? f : cur.raw,
+    };
+    const keptFrom =
+      segs.length === 0 && curSegs.length > 0 ? "kept_existing" : "from_parse";
+    console.log(
+      `[commit.flight] merge doc=${docId} new_segs=${segs.length} cur_segs=${curSegs.length} final_segs=${mergedSegs.length} source=${keptFrom}`
+    );
+    const id = cur.id;
     const { error: updErr } = await admin
       .from("flights")
-      .update(payload)
+      .update(mergedPayload)
       .eq("id", id);
     if (updErr) {
       console.error(`[commit.flight] update doc=${docId}:`, updErr.message);
@@ -270,7 +329,7 @@ async function commitFlight(
       .update({ parsed_status: "parsed", kind: "flight" })
       .eq("id", docId);
     console.log(
-      `[commit.flight] updated row=${id} segments_written=${segs.length}`
+      `[commit.flight] updated row=${id} segments_written=${mergedSegs.length}`
     );
     return { ok: true, kind: "flight", rowId: id, created: false };
   }
