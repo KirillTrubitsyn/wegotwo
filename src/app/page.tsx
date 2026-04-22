@@ -301,9 +301,22 @@ function CommonDocsBlock() {
           href="/trips/new"
           aria-label="Новая поездка"
           title="Новая поездка"
-          className="flex-shrink-0 w-[72px] flex items-center justify-center bg-blue text-white rounded-card shadow-card text-[32px] leading-none font-semibold active:opacity-85"
+          className="flex-shrink-0 w-[56px] flex items-center justify-center bg-white rounded-card shadow-card text-blue active:bg-bg-surface"
         >
-          +
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden
+          >
+            <path
+              d="M12 5v14M5 12h14"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
         </Link>
       </div>
     </section>
