@@ -143,15 +143,6 @@ export default async function HomePage() {
         title="WeGoTwo"
         logoSrc="/wegotwo-wordmark.svg"
         mskClock
-        actions={
-          <Link
-            href="/trips/new"
-            aria-label="Новая поездка"
-            className="inline-flex items-center justify-center w-[32px] h-[32px] rounded-full bg-blue text-white text-[18px] leading-none font-semibold active:opacity-85"
-          >
-            +
-          </Link>
-        }
       />
 
       <div className="px-5 pb-8 pt-4">
@@ -212,10 +203,10 @@ export default async function HomePage() {
                 </Grid>
               </Section>
             )}
-
-            <CommonDocsBlock />
           </>
         )}
+
+        <CommonDocsBlock />
       </div>
     </>
   );
@@ -248,63 +239,73 @@ function CommonDocsBlock() {
       <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-3">
         Документы для поездок
       </h2>
-      <Link
-        href="/passports"
-        className="block bg-white rounded-card shadow-card p-4 active:bg-bg-surface"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-[44px] h-[44px] rounded-[12px] bg-blue-lt flex items-center justify-center flex-shrink-0">
+      <div className="flex items-stretch gap-3">
+        <Link
+          href="/passports"
+          className="flex-1 min-w-0 block bg-white rounded-card shadow-card p-4 active:bg-bg-surface"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-[44px] h-[44px] rounded-[12px] bg-blue-lt flex items-center justify-center flex-shrink-0">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+              >
+                <rect
+                  x="4"
+                  y="3"
+                  width="16"
+                  height="18"
+                  rx="2"
+                  stroke="#3478F6"
+                  strokeWidth="1.8"
+                />
+                <circle cx="12" cy="11" r="2.5" stroke="#3478F6" strokeWidth="1.6" />
+                <path
+                  d="M8 17c.8-1.6 2.3-2.5 4-2.5s3.2.9 4 2.5"
+                  stroke="#3478F6"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold text-text-main">
+                Загранпаспорта
+              </div>
+              <div className="text-[12px] text-text-sec mt-[2px] truncate">
+                Кирилл и Марина · {COMMON_DOCS.length} {pluralDocs(COMMON_DOCS.length)}
+              </div>
+            </div>
             <svg
-              width="22"
-              height="22"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               aria-hidden
+              className="text-text-mut"
             >
-              <rect
-                x="4"
-                y="3"
-                width="16"
-                height="18"
-                rx="2"
-                stroke="#3478F6"
-                strokeWidth="1.8"
-              />
-              <circle cx="12" cy="11" r="2.5" stroke="#3478F6" strokeWidth="1.6" />
               <path
-                d="M8 17c.8-1.6 2.3-2.5 4-2.5s3.2.9 4 2.5"
-                stroke="#3478F6"
-                strokeWidth="1.6"
+                d="M9 6l6 6-6 6"
+                stroke="currentColor"
+                strokeWidth="2"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
             </svg>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold text-text-main">
-              Загранпаспорта
-            </div>
-            <div className="text-[12px] text-text-sec mt-[2px] truncate">
-              Кирилл и Марина · {COMMON_DOCS.length} {pluralDocs(COMMON_DOCS.length)}
-            </div>
-          </div>
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden
-            className="text-text-mut"
-          >
-            <path
-              d="M9 6l6 6-6 6"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-      </Link>
+        </Link>
+        <Link
+          href="/trips/new"
+          aria-label="Новая поездка"
+          title="Новая поездка"
+          className="flex-shrink-0 w-[72px] flex items-center justify-center bg-blue text-white rounded-card shadow-card text-[32px] leading-none font-semibold active:opacity-85"
+        >
+          +
+        </Link>
+      </div>
     </section>
   );
 }
@@ -327,7 +328,7 @@ function EmptyState() {
         Поездок пока нет
       </p>
       <p className="text-text-sec text-[13px] mt-1 leading-relaxed">
-        Создайте первую поездку кнопкой + в шапке или скажите Cowork:
+        Создайте первую поездку кнопкой + ниже или скажите Cowork:
         <br />
         «Добавь поездку из папки Черногория».
       </p>
