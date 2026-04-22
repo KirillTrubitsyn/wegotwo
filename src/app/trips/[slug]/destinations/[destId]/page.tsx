@@ -7,8 +7,14 @@ import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
 import CityTabs, { type CityTab } from "@/components/CityTabs";
 import Flag from "@/components/Flag";
+import DestinationEditTrigger from "@/components/DestinationEditTrigger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/budget/labels";
+import {
+  updateDestinationAction,
+  setDestinationCoverAction,
+  clearManualDescriptionAction,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +59,8 @@ type Destination = {
   type: "home" | "stay" | "transit" | null;
   photo_path: string | null;
   sort_order: number | null;
+  description: string | null;
+  description_source: "auto" | "manual" | null;
 };
 
 type StayRaw = {
@@ -130,7 +138,7 @@ export default async function DestinationPage({
     admin
       .from("destinations")
       .select(
-        "id,name,country,flag_code,lat,lon,timezone,date_from,date_to,type,photo_path,sort_order"
+        "id,name,country,flag_code,lat,lon,timezone,date_from,date_to,type,photo_path,sort_order,description,description_source"
       )
       .eq("id", destId)
       .eq("trip_id", trip.id)
@@ -154,15 +162,20 @@ export default async function DestinationPage({
     dateFrom: (t.date_from as string | null) ?? null,
   }));
 
-  // Параллелим stay, signed URL обложки, и список расходов, привязанных
-  // к этому городу. Три независимых запроса, ни один не блокирует другие.
+  // Параллелим stay, signed URL обложки, список расходов, привязанных
+  // к этому городу, и список фотографий поездки для пикера обложки.
   const coverPromise: Promise<string | null> = dest.photo_path
     ? admin.storage
         .from("photos")
         .createSignedUrl(dest.photo_path, 3600)
         .then((r) => r.data?.signedUrl ?? null)
     : Promise.resolve(null);
-  const [{ data: stayData }, coverUrl, { data: expData }] = await Promise.all([
+  const [
+    { data: stayData },
+    coverUrl,
+    { data: expData },
+    { data: photoData },
+  ] = await Promise.all([
     admin
       .from("stays")
       .select(
@@ -180,9 +193,43 @@ export default async function DestinationPage({
       .eq("trip_id", trip.id)
       .eq("destination_id", dest.id)
       .order("occurred_on", { ascending: false }),
+    admin
+      .from("photos")
+      .select("id,storage_path,thumbnail_path,taken_at")
+      .eq("trip_id", trip.id)
+      .order("taken_at", { ascending: false, nullsFirst: false })
+      .limit(120),
   ]);
   const stay = (stayData ?? null) as StayRow | null;
   const raw: StayRaw = stay?.raw ?? {};
+
+  // Готовим миниатюры для пикера обложки. Используем thumbnail_path,
+  // если он сгенерирован (см. /lib/photos/thumb.ts), иначе оригинал.
+  const photoRows = (photoData ?? []) as Array<{
+    id: string;
+    storage_path: string;
+    thumbnail_path: string | null;
+  }>;
+  const thumbPaths = photoRows
+    .map((p) => p.thumbnail_path ?? p.storage_path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  const thumbUrlByPath = new Map<string, string>();
+  if (thumbPaths.length > 0) {
+    const { data: signed } = await admin.storage
+      .from("photos")
+      .createSignedUrls(thumbPaths, 60 * 60);
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) thumbUrlByPath.set(s.path, s.signedUrl);
+    }
+  }
+  const photoOptions = photoRows.map((p) => {
+    const key = p.thumbnail_path ?? p.storage_path;
+    return {
+      id: p.id,
+      thumbUrl: thumbUrlByPath.get(key) ?? null,
+      storagePath: p.storage_path,
+    };
+  });
 
   // Агрегаты по расходам этого города. Суммы считаем в trip.base_currency,
   // которую commit-слой уже записал в amount_base / currency_base.
@@ -251,14 +298,64 @@ export default async function DestinationPage({
 
         {/* City headline */}
         <div>
-          <h1 className="text-[22px] font-bold text-text-main flex items-center gap-[10px]">
-            <Flag code={dest.flag_code} size="md" />
-            <span>{title}</span>
-          </h1>
-          {rangeLabel && (
-            <div className="text-[13px] text-text-sec tnum mt-[2px]">
-              {rangeLabel}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-[22px] font-bold text-text-main flex items-center gap-[10px]">
+                <Flag code={dest.flag_code} size="md" />
+                <span>{title}</span>
+              </h1>
+              {rangeLabel && (
+                <div className="text-[13px] text-text-sec tnum mt-[2px]">
+                  {rangeLabel}
+                </div>
+              )}
             </div>
+            {!isPast && (
+              <DestinationEditTrigger
+                destName={dest.name}
+                destDescription={dest.description ?? ""}
+                descriptionSource={dest.description_source}
+                currentPhotoStoragePath={dest.photo_path}
+                photos={photoOptions}
+                save={async (fd: FormData) => {
+                  "use server";
+                  return await updateDestinationAction(
+                    trip.slug,
+                    dest.id,
+                    fd
+                  );
+                }}
+                setCover={async (photoId: string | null) => {
+                  "use server";
+                  return await setDestinationCoverAction(
+                    trip.slug,
+                    dest.id,
+                    photoId
+                  );
+                }}
+                clearManual={async () => {
+                  "use server";
+                  return await clearManualDescriptionAction(
+                    trip.slug,
+                    dest.id
+                  );
+                }}
+              />
+            )}
+          </div>
+
+          {dest.description && (
+            <details className="mt-3 rounded-card bg-bg-surface border border-black/[0.06] group">
+              <summary className="cursor-pointer list-none px-3 py-[10px] text-[12px] font-medium text-text-sec select-none flex items-center justify-between">
+                <span>О городе</span>
+                <span className="text-[11px] transition-transform group-open:rotate-180">
+                  ▾
+                </span>
+              </summary>
+              <div className="px-3 pb-3 pt-1 text-[13px] text-text-main leading-[1.55] whitespace-pre-line">
+                {dest.description}
+              </div>
+            </details>
           )}
         </div>
 

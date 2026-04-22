@@ -132,9 +132,11 @@ export default async function TripOverviewPage({
     sortOrder: d.sort_order,
     dateFrom: d.date_from,
   }));
-  const destinations = allStayHome.filter(
-    (d) => d.type === "stay" && d.photo_path
-  );
+  // Показываем плитки для всех stay-городов, даже без обложки —
+  // пустую плитку можно тапнуть, чтобы выбрать фото на странице
+  // города. Раньше фильтр требовал photo_path, и безфотовые города
+  // молча пропадали из вкладки «Города».
+  const destinations = allStayHome.filter((d) => d.type === "stay");
   const destPhotoPaths = destinations
     .map((d) => d.photo_path)
     .filter((p): p is string => typeof p === "string" && p.length > 0);
@@ -236,27 +238,46 @@ export default async function TripOverviewPage({
                     href={`/trips/${trip.slug}/destinations/${d.id}`}
                     className="relative block rounded-card overflow-hidden shadow-card bg-bg-surface aspect-[16/9] active:opacity-90"
                   >
-                    {photoUrl && (
-                      <Image
-                        src={photoUrl}
-                        alt={d.name}
-                        fill
-                        sizes="(max-width: 480px) 100vw, 440px"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />
-                    <div className="absolute right-4 bottom-3 text-right text-white">
-                      <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
-                        {d.name}
-                      </div>
-                      {range && (
-                        <div className="text-[12px] opacity-95 mt-[2px] tnum drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
-                          {range}
+                    {photoUrl ? (
+                      <>
+                        <Image
+                          src={photoUrl}
+                          alt={d.name}
+                          fill
+                          sizes="(max-width: 480px) 100vw, 440px"
+                          className="object-cover"
+                          unoptimized
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />
+                        <div className="absolute right-4 bottom-3 text-right text-white">
+                          <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+                            {d.name}
+                          </div>
+                          {range && (
+                            <div className="text-[12px] opacity-95 mt-[2px] tnum drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
+                              {range}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 bg-gradient-to-br from-blue-lt via-bg-surface to-gold-lt flex flex-col items-end justify-end p-4">
+                        <span className="absolute top-3 left-3 text-[11px] uppercase tracking-[0.5px] text-text-mut font-semibold inline-flex items-center gap-[5px]">
+                          <span aria-hidden="true">🖼</span>
+                          Добавить обложку
+                        </span>
+                        <div className="text-right">
+                          <div className="text-[24px] font-bold leading-tight text-text-main">
+                            {d.name}
+                          </div>
+                          {range && (
+                            <div className="text-[12px] text-text-sec mt-[2px] tnum">
+                              {range}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </Link>
                 );
               })}
