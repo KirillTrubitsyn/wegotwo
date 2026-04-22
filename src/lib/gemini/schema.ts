@@ -164,6 +164,24 @@ export const TourExtra = z.object({
 });
 export type TourExtra = z.infer<typeof TourExtra>;
 
+// Описание города — короткий обзор, который часто содержится в
+// туристических буклетах, путеводителях, страницах туроператора
+// («Что вас ждёт», «О направлении»). На один город может прийти
+// несколько таких документов; ingest пишет последний в
+// destinations.description (если description_source != 'manual').
+export const CitySummaryFields = z.object({
+  // Имя города в исходном документе (на любом языке). Используем для
+  // матчинга в commit-слое: пробуем сначала точное совпадение
+  // по названию в нижнем регистре, потом по country_code.
+  city_name: OptStr,
+  // 2-letter ISO код страны — fallback-матчинг, когда город назван
+  // по-другому (Тиват vs Tivat).
+  country_code: OptStr,
+  // Краткое markdown-описание города (1–4 абзаца). На русском.
+  summary: z.string().min(1),
+});
+export type CitySummaryFields = z.infer<typeof CitySummaryFields>;
+
 export const ExpenseFields = z.object({
   merchant: OptStr,
   description: OptStr,
@@ -241,6 +259,12 @@ export const ParsedDocument = z.discriminatedUnion("type", [
     expense: ExpenseFields,
   }),
   z.object({
+    type: z.literal("city_summary"),
+    summary: z.string(),
+    confidence: z.number().min(0).max(1),
+    city_summary: CitySummaryFields,
+  }),
+  z.object({
     type: z.literal("unknown"),
     summary: z.string(),
     confidence: z.number().min(0).max(1),
@@ -263,7 +287,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
   properties: {
     type: {
       type: "STRING",
-      enum: ["flight", "stay", "expense", "unknown"],
+      enum: ["flight", "stay", "expense", "city_summary", "unknown"],
     },
     summary: { type: "STRING" },
     confidence: { type: "NUMBER" },
@@ -363,6 +387,15 @@ export const GEMINI_RESPONSE_SCHEMA = {
             },
           },
         },
+      },
+    },
+    city_summary: {
+      type: "OBJECT",
+      nullable: true,
+      properties: {
+        city_name: { type: "STRING", nullable: true },
+        country_code: { type: "STRING", nullable: true },
+        summary: { type: "STRING", nullable: true },
       },
     },
   },

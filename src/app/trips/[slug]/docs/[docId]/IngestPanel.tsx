@@ -22,12 +22,17 @@ import {
 } from "./ingest-actions";
 
 type ParsedShape = {
-  type?: "flight" | "stay" | "expense" | "unknown";
+  type?: "flight" | "stay" | "expense" | "city_summary" | "unknown";
   summary?: string;
   confidence?: number;
   flight?: Record<string, string | number | null>;
   stay?: Record<string, string | number | null>;
   expense?: Record<string, string | number | null>;
+  city_summary?: {
+    city_name?: string | null;
+    country_code?: string | null;
+    summary?: string | null;
+  };
   error?: string;
 };
 
@@ -49,6 +54,8 @@ function labelForType(t?: string | null): string {
       return "Проживание";
     case "expense":
       return "Расход";
+    case "city_summary":
+      return "Описание города";
     case "unknown":
       return "Не распознано";
     default:
@@ -213,6 +220,21 @@ export default function IngestPanel({
         {pd.type === "stay" && pd.stay ? <StayGrid s={pd.stay} /> : null}
         {pd.type === "expense" && pd.expense ? (
           <ExpenseGrid e={pd.expense} />
+        ) : null}
+        {pd.type === "city_summary" && pd.city_summary ? (
+          <div className="space-y-2">
+            <div className="text-[12px] text-text-sec">
+              Город: {pd.city_summary.city_name ?? "—"}
+              {pd.city_summary.country_code
+                ? ` · ${pd.city_summary.country_code.toUpperCase()}`
+                : ""}
+            </div>
+            {pd.city_summary.summary ? (
+              <div className="text-[13px] text-text-main whitespace-pre-line bg-bg-surface rounded-btn px-3 py-2 leading-[1.5]">
+                {pd.city_summary.summary}
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {pd.type === "unknown" ? (

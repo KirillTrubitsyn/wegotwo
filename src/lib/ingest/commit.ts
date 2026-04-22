@@ -22,6 +22,7 @@ import {
   type FlightFields,
   type StayFields,
   type ExpenseFields,
+  type CitySummaryFields,
 } from "@/lib/gemini/schema";
 import {
   createEventsForFlight,
@@ -33,7 +34,12 @@ import { detectStayProvider } from "@/lib/travel/airbnb";
 import { ensureAccommodationExpense } from "@/lib/ingest/stay-expense";
 
 export type CommitResult =
-  | { ok: true; kind: "flight" | "stay" | "expense"; rowId: string; created: boolean }
+  | {
+      ok: true;
+      kind: "flight" | "stay" | "expense" | "city_summary";
+      rowId: string;
+      created: boolean;
+    }
   | { ok: false; error: string };
 
 export async function commitParsedDocument(
@@ -187,6 +193,9 @@ export async function commitParsedDocument(
       }
     }
     return res;
+  }
+  if (pd.type === "city_summary") {
+    return await commitCitySummary(admin, tripId, docId, pd.city_summary);
   }
   return { ok: false, error: "Неизвестный тип документа" };
 }
@@ -727,4 +736,102 @@ async function commitExpense(
     .eq("id", docId);
 
   return { ok: true, kind: "expense", rowId: (data as { id: string }).id, created: true };
+}
+
+/**
+ * Записать city_summary в destinations.description.
+ *
+ * Матчинг города в порядке приоритета:
+ *   1) точное совпадение по name (case-insensitive, обрезаем
+ *      пробелы и диакритику);
+ *   2) flag_code == country_code (нижний регистр), при условии
+ *      что в поездке такая страна одна;
+ *   3) если ничего не нашли — мягкий no-op (документ помечается
+ *      parsed, но destination не трогаем).
+ *
+ * Защита от перезаписи ручной правки: если description_source ==
+ * 'manual', оставляем destination как есть и помечаем документ.
+ */
+async function commitCitySummary(
+  admin: SupabaseClient,
+  tripId: string,
+  docId: string,
+  c: CitySummaryFields
+): Promise<CommitResult> {
+  const summary = c.summary?.trim();
+  if (!summary) {
+    await admin
+      .from("documents")
+      .update({ parsed_status: "parsed", kind: "city_summary" })
+      .eq("id", docId);
+    return { ok: false, error: "Описание города пустое" };
+  }
+
+  const { data: destsRaw } = await admin
+    .from("destinations")
+    .select("id,name,flag_code,description_source")
+    .eq("trip_id", tripId)
+    .in("type", ["stay", "home"]);
+  const dests = (destsRaw ?? []) as Array<{
+    id: string;
+    name: string;
+    flag_code: string | null;
+    description_source: "auto" | "manual" | null;
+  }>;
+
+  const norm = (s: string | null | undefined): string =>
+    (s ?? "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .trim();
+  const wantedName = norm(c.city_name);
+  const wantedCode = (c.country_code ?? "").toLowerCase();
+
+  let target = wantedName
+    ? dests.find((d) => norm(d.name) === wantedName) ?? null
+    : null;
+  if (!target && wantedCode) {
+    const sameCode = dests.filter(
+      (d) => (d.flag_code ?? "").toLowerCase() === wantedCode
+    );
+    if (sameCode.length === 1) target = sameCode[0];
+  }
+
+  if (!target) {
+    console.warn(
+      `[commit.city_summary] doc=${docId} city='${c.city_name ?? ""}' code='${c.country_code ?? ""}' — no destination match`
+    );
+    await admin
+      .from("documents")
+      .update({ parsed_status: "parsed", kind: "city_summary" })
+      .eq("id", docId);
+    return { ok: false, error: "Город не найден в поездке" };
+  }
+
+  if (target.description_source === "manual") {
+    console.log(
+      `[commit.city_summary] doc=${docId} dest=${target.id} skip — description_source=manual`
+    );
+    await admin
+      .from("documents")
+      .update({ parsed_status: "parsed", kind: "city_summary" })
+      .eq("id", docId);
+    return { ok: true, kind: "city_summary", rowId: target.id, created: false };
+  }
+
+  const { error } = await admin
+    .from("destinations")
+    .update({ description: summary, description_source: "auto" })
+    .eq("id", target.id);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  await admin
+    .from("documents")
+    .update({ parsed_status: "parsed", kind: "city_summary" })
+    .eq("id", docId);
+
+  return { ok: true, kind: "city_summary", rowId: target.id, created: true };
 }
