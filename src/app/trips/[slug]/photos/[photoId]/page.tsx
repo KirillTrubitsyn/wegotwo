@@ -7,6 +7,9 @@ import PhotoEditForm from "./PhotoEditForm";
 import EventCoverPicker, {
   type EventCoverOption,
 } from "./EventCoverPicker";
+import DestinationCoverPicker, {
+  type DestinationCoverOption,
+} from "./DestinationCoverPicker";
 import {
   updatePhotoAction,
   deletePhotoAction,
@@ -82,6 +85,15 @@ export default async function PhotoDetailPage({
     .eq("trip_id", trip.id)
     .order("start_at", { ascending: true, nullsFirst: false })
     .order("sort_order", { ascending: true });
+
+  // Города поездки (stay + home) — для пикера обложки города.
+  // Фильтруем по stay/home, чтобы transit-стыковки не засоряли список.
+  const { data: destData } = await admin
+    .from("destinations")
+    .select("id,name,flag_code,type,date_from,date_to,photo_path,sort_order")
+    .eq("trip_id", trip.id)
+    .in("type", ["stay", "home"])
+    .order("sort_order", { ascending: true });
   const dayById = new Map(days.map((d) => [d.id, d.date]));
   const eventOptions: EventCoverOption[] = (
     (eventData ?? []) as Array<{
@@ -109,6 +121,26 @@ export default async function PhotoDetailPage({
         e.photo_path === (photoData as { storage_path: string }).storage_path,
     };
   });
+
+  const destinationOptions: DestinationCoverOption[] = (
+    (destData ?? []) as Array<{
+      id: string;
+      name: string;
+      flag_code: string | null;
+      type: "stay" | "home" | "transit" | null;
+      date_from: string | null;
+      date_to: string | null;
+      photo_path: string | null;
+    }>
+  ).map((d) => ({
+    id: d.id,
+    name: d.name,
+    flagCode: d.flag_code,
+    type: d.type,
+    rangeLabel: formatCityRange(d.date_from, d.date_to),
+    isCurrent:
+      d.photo_path != null && d.photo_path === photo.storage_path,
+  }));
 
   const { data: signed } = await admin.storage
     .from(PHOTOS_BUCKET)
@@ -201,9 +233,28 @@ export default async function PhotoDetailPage({
                 : "w-full bg-blue-lt text-blue rounded-btn py-[12px] text-[14px] font-semibold active:opacity-85"
             }
           >
-            {isCover ? "Убрать с обложки" : "Сделать обложкой поездки"}
+            {isCover
+              ? "Убрать с обложки поездки"
+              : "Сделать обложкой поездки"}
           </button>
         </form>
+
+        <section className="bg-white rounded-card shadow-card p-5 space-y-3">
+          <div>
+            <h2 className="text-[14px] font-semibold text-text-main">
+              Обложка города
+            </h2>
+            <p className="text-[12px] text-text-sec mt-[2px] leading-[1.4]">
+              Выбери город поездки — фото станет его обложкой на вкладке
+              «Города». Нажми ещё раз, чтобы убрать.
+            </p>
+          </div>
+          <DestinationCoverPicker
+            slug={slug}
+            photoId={photoId}
+            destinations={destinationOptions}
+          />
+        </section>
 
         <section className="bg-white rounded-card shadow-card p-5 space-y-3">
           <div>
@@ -235,4 +286,23 @@ export default async function PhotoDetailPage({
       </div>
     </>
   );
+}
+
+function formatCityRange(
+  from: string | null,
+  to: string | null
+): string | null {
+  if (!from || !to) return null;
+  const a = parseISO(from);
+  const b = parseISO(to);
+  const sameMonth =
+    a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  if (sameMonth) {
+    return `${format(a, "d", { locale: ru })}–${format(b, "d MMMM", {
+      locale: ru,
+    })}`;
+  }
+  return `${format(a, "d MMM", { locale: ru })} — ${format(b, "d MMM", {
+    locale: ru,
+  })}`;
 }

@@ -419,3 +419,62 @@ export async function toggleEventCoverAction(
   revalidatePath(`/trips/${slug}/days`);
   return { ok: true, linked: !isCurrently };
 }
+
+/**
+ * Назначить (или снять) это фото обложкой конкретного города
+ * поездки. Toggle-семантика: если у destination уже стоит этот
+ * storage_path — убираем (photo_path = null). Иначе ставим.
+ *
+ * Вызывается из `DestinationCoverPicker` на странице фото, чтобы
+ * юзер мог одной кнопкой из списка городов поездки зафиксировать
+ * обложку. Это зеркало `toggleEventCoverAction`, только для
+ * `destinations.photo_path`.
+ */
+export async function toggleDestinationCoverAction(
+  slug: string,
+  photoId: string,
+  destinationId: string
+): Promise<{ ok: true; linked: boolean } | { ok: false; error: string }> {
+  const username = await getCurrentUsername();
+  if (!username) return { ok: false, error: "Требуется вход" };
+  const admin = createAdminClient();
+
+  const { data: tripRow } = await admin
+    .from("trips")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  const trip = tripRow as { id: string } | null;
+  if (!trip) return { ok: false, error: "Поездка не найдена" };
+
+  const { data: photoRow } = await admin
+    .from("photos")
+    .select("storage_path")
+    .eq("id", photoId)
+    .eq("trip_id", trip.id)
+    .maybeSingle();
+  const photo = photoRow as { storage_path: string } | null;
+  if (!photo) return { ok: false, error: "Фото не найдено" };
+
+  const { data: destRow } = await admin
+    .from("destinations")
+    .select("id,photo_path")
+    .eq("id", destinationId)
+    .eq("trip_id", trip.id)
+    .maybeSingle();
+  const dest = destRow as { id: string; photo_path: string | null } | null;
+  if (!dest) return { ok: false, error: "Город не найден" };
+
+  const isCurrently = dest.photo_path === photo.storage_path;
+  const nextPath = isCurrently ? null : photo.storage_path;
+  const { error } = await admin
+    .from("destinations")
+    .update({ photo_path: nextPath })
+    .eq("id", destinationId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/trips/${slug}`);
+  revalidatePath(`/trips/${slug}/photos/${photoId}`);
+  revalidatePath(`/trips/${slug}/destinations/${destinationId}`);
+  return { ok: true, linked: !isCurrently };
+}
