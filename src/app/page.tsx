@@ -53,7 +53,14 @@ async function loadTrips(): Promise<Trip[]> {
  *
  * All storage paths are signed in a single batched call. Missing covers
  * fall back to the color gradient inside TripCard.
+ *
+ * TTL must outlive ISR staleness: the page is cached with revalidate=30,
+ * but stale-while-revalidate means returning users can receive HTML
+ * generated hours ago. 7 days keeps signed URLs valid well past any
+ * realistic cache age, so covers never render as broken images.
  */
+const COVER_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
+
 async function resolveCovers(trips: Trip[]): Promise<TripWithCover[]> {
   if (trips.length === 0) return [];
   try {
@@ -91,7 +98,7 @@ async function resolveCovers(trips: Trip[]): Promise<TripWithCover[]> {
     if (paths.length > 0) {
       const { data: signed } = await admin.storage
         .from("photos")
-        .createSignedUrls(paths, 3600);
+        .createSignedUrls(paths, COVER_URL_TTL_SECONDS);
       for (let i = 0; i < paths.length; i++) {
         const url = signed?.[i]?.signedUrl;
         if (url) urlByPath.set(paths[i], url);

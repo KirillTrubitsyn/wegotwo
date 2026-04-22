@@ -140,9 +140,11 @@ export default async function TripOverviewPage({
     .filter((p): p is string => typeof p === "string" && p.length > 0);
   let destPhotoByPath = new Map<string, string>();
   if (destPhotoPaths.length > 0) {
+    // TTL matches home page: ISR (revalidate=30) can serve HTML hours old,
+    // so short-lived signed URLs expire inside the cache and render broken.
     const { data: signed } = await admin.storage
       .from("photos")
-      .createSignedUrls(destPhotoPaths, 3600);
+      .createSignedUrls(destPhotoPaths, 60 * 60 * 24 * 7);
     destPhotoByPath = new Map(
       (signed ?? [])
         .map((s, i) => [destPhotoPaths[i], s.signedUrl] as const)
