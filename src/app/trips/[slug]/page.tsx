@@ -9,10 +9,10 @@ import RouteCard from "@/components/RouteCard";
 import DayCard from "@/components/DayCard";
 import OfflineBanner from "@/components/OfflineBanner";
 import CityTabs, { type CityTab } from "@/components/CityTabs";
+import TripActionsMenu from "@/components/TripActionsMenu";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 import { displayDayDetail } from "@/lib/ingest/day-detail";
-import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 import { archiveTripAction, deleteTripAction } from "../actions";
 
 // Кешируем страницу на 30 секунд, чтобы переключение вкладок и
@@ -192,7 +192,21 @@ export default async function TripOverviewPage({
           <CityTabs slug={trip.slug} tabs={cityTabs} activeId={null} />
         )}
 
-        <div className="text-[13px] text-text-sec tnum">{rangeLabel}</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[13px] text-text-sec tnum">{rangeLabel}</div>
+          <TripActionsMenu
+            slug={trip.slug}
+            archived={Boolean(trip.archived_at)}
+            archive={async () => {
+              "use server";
+              await archiveTripAction(trip.slug, !trip.archived_at);
+            }}
+            remove={async () => {
+              "use server";
+              await deleteTripAction(trip.slug);
+            }}
+          />
+        </div>
 
         {(destinations.length > 0 || allDays.length > 0) && (
           <div className="bg-bg-surface rounded-card p-[4px] flex">
@@ -254,16 +268,7 @@ export default async function TripOverviewPage({
             summary={trip.country ?? undefined}
             color={trip.color}
           />
-        ) : (
-          <div className="bg-white rounded-card shadow-card p-5">
-            <div className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold mb-2">
-              Маршрут
-            </div>
-            <div className="text-text-sec text-[14px]">
-              Заполните маршрут в редакторе поездки.
-            </div>
-          </div>
-        )}
+        ) : null}
 
         {allDays.length > 0 && (
           <section>
@@ -312,39 +317,6 @@ export default async function TripOverviewPage({
             </div>
           </section>
         )}
-
-        <div className="flex gap-3">
-          <Link
-            href={`/trips/${trip.slug}/edit`}
-            className="flex-1 bg-white border border-black/[0.08] rounded-btn py-[12px] text-[14px] font-medium text-center text-text-main active:bg-bg-surface"
-          >
-            Редактировать
-          </Link>
-          <form
-            action={async () => {
-              "use server";
-              await archiveTripAction(trip.slug, !trip.archived_at);
-            }}
-            className="flex-1"
-          >
-            <button
-              type="submit"
-              className="w-full bg-white border border-black/[0.08] rounded-btn py-[12px] text-[14px] font-medium text-text-main active:bg-bg-surface"
-            >
-              {trip.archived_at ? "Вернуть" : "В архив"}
-            </button>
-          </form>
-        </div>
-
-        <ConfirmDeleteButton
-          perform={async () => {
-            "use server";
-            await deleteTripAction(trip.slug);
-          }}
-          label="Удалить поездку"
-          confirmText="Все дни, события, документы, фото и расходы поездки будут удалены без возможности восстановить. Введите код доступа."
-          className="w-full bg-white border border-accent/20 rounded-btn py-[12px] text-[13px] font-medium text-accent active:bg-red-lt"
-        />
       </div>
 
       <BottomNav slug={trip.slug} />
