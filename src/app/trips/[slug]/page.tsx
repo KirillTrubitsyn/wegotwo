@@ -248,13 +248,12 @@ export default async function TripOverviewPage({
                           className="object-cover"
                           unoptimized
                         />
-                        <div className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/20 to-transparent" />
                         <div className="absolute right-4 bottom-3 text-right text-white">
-                          <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+                          <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">
                             {d.name}
                           </div>
                           {range && (
-                            <div className="text-[12px] opacity-95 mt-[2px] tnum drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
+                            <div className="text-[12px] opacity-95 mt-[2px] tnum drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
                               {range}
                             </div>
                           )}
