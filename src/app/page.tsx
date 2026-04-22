@@ -143,9 +143,18 @@ export default async function HomePage() {
         title="WeGoTwo"
         logoSrc="/wegotwo-wordmark.svg"
         mskClock
+        actions={
+          <Link
+            href="/trips/new"
+            aria-label="Новая поездка"
+            className="inline-flex items-center justify-center w-[32px] h-[32px] rounded-full bg-blue text-white text-[18px] leading-none font-semibold active:opacity-85"
+          >
+            +
+          </Link>
+        }
       />
 
-      <div className="px-5 pb-32 pt-4">
+      <div className="px-5 pb-8 pt-4">
         {empty ? (
           <EmptyState />
         ) : (
@@ -208,13 +217,6 @@ export default async function HomePage() {
           </>
         )}
       </div>
-
-      <Link
-        href="/trips/new"
-        className="fixed bottom-[max(20px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 w-[calc(100%-40px)] max-w-[440px] bg-blue text-white rounded-btn py-[14px] text-[15px] font-semibold text-center shadow-float active:opacity-90 active:scale-[0.99] transition"
-      >
-        Новая поездка
-      </Link>
     </>
   );
 }
@@ -325,7 +327,7 @@ function EmptyState() {
         Поездок пока нет
       </p>
       <p className="text-text-sec text-[13px] mt-1 leading-relaxed">
-        Создайте первую поездку кнопкой ниже или скажите Cowork:
+        Создайте первую поездку кнопкой + в шапке или скажите Cowork:
         <br />
         «Добавь поездку из папки Черногория».
       </p>
