@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type PhotoOption = {
@@ -55,7 +55,6 @@ export default function DestinationEditModal({
   const [coverPath, setCoverPath] = useState(currentPhotoStoragePath);
   const [coverPending, setCoverPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     setCoverPath(currentPhotoStoragePath);
@@ -128,7 +127,6 @@ export default function DestinationEditModal({
         </div>
 
         <form
-          ref={formRef}
           action={(fd) => {
             setError(null);
             startTransition(async () => {

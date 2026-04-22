@@ -258,7 +258,9 @@ export async function clearIngestAction(
   return { ok: true, message: "Отмечено как не требующее ингеста" };
 }
 
-function kindLabelRu(k: "flight" | "stay" | "expense"): string {
+function kindLabelRu(
+  k: "flight" | "stay" | "expense" | "city_summary"
+): string {
   switch (k) {
     case "flight":
       return "рейс";
@@ -266,5 +268,7 @@ function kindLabelRu(k: "flight" | "stay" | "expense"): string {
       return "бронь проживания";
     case "expense":
       return "расход";
+    case "city_summary":
+      return "описание города";
   }
 }
