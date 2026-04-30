@@ -338,7 +338,7 @@ export default async function TripOverviewPage({
         )}
       </div>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="overview" />
     </>
   );
 }

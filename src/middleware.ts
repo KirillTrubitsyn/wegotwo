@@ -48,15 +48,7 @@ export async function middleware(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return redirectToUnlock(req, pathname);
 
-    // Прокидываем pathname в request headers, чтобы server-компоненты
-    // (например, BottomNav) могли определять активный таб без
-    // `usePathname()` на клиенте. Без `request.headers` `headers()` в
-    // server components вернёт оригинальные request headers без наших
-    // правок, поэтому передаём через `NextResponse.next({ request })`.
-    const requestHeaders = new Headers(req.headers);
-    requestHeaders.set("x-wgt-pathname", pathname);
-
-    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    const res = NextResponse.next();
     res.headers.set("x-wgt-user", payload.u);
     return res;
   } catch (err) {

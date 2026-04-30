@@ -305,7 +305,7 @@ export default async function DayDetailPage({
           {weekday.toUpperCase()} · {dateShort.toUpperCase()}
         </div>
       </main>
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="days" />
     </>
   );
 }

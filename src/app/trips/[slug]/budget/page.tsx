@@ -248,7 +248,7 @@ export default async function BudgetPage({
         </Link>
       </div>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="budget" />
     </>
   );
 }
