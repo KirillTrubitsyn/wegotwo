@@ -3,7 +3,12 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     serverActions: {
-      bodySizeLimit: "12mb",
+      // UI и server-side валидатор `uploadPhotoAction` оба разрешают
+      // фото до 30 МБ, и UI прямо обещает «до 30 МБ». Дефолтный
+      // bodySizeLimit Next (1 МБ) или старые 12 МБ молча резали
+      // тяжёлые HEIC до того, как наша валидация успевала вернуть
+      // нормальную ошибку. Выравниваем по реальному UI-лимиту.
+      bodySizeLimit: "30mb",
     },
   },
   outputFileTracingIncludes: {

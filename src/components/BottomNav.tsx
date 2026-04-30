@@ -1,7 +1,5 @@
-"use client";
-
+import { headers } from "next/headers";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 
 const ICONS = {
   home: "🗺",
@@ -54,8 +52,18 @@ function buildItems(slug: string): Item[] {
   ];
 }
 
-export default function BottomNav({ slug }: { slug: string }) {
-  const pathname = usePathname() ?? "";
+/**
+ * Нижний навбар поездки. Был client-компонентом только ради
+ * `usePathname()` — это тащило BottomNav в client bundle на каждой
+ * странице поездки без какой-либо реальной интерактивности.
+ *
+ * Теперь это server component: pathname приходит из request headers,
+ * которые middleware прокидывает (`x-wgt-pathname`). Активный таб
+ * вычисляется на сервере, клиенту улетает уже готовый HTML.
+ */
+export default async function BottomNav({ slug }: { slug: string }) {
+  const h = await headers();
+  const pathname = h.get("x-wgt-pathname") ?? "";
   const items = buildItems(slug);
 
   return (

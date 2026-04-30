@@ -59,14 +59,22 @@ export default function ConfirmDeleteButton({
         {children ?? label}
       </button>
 
-      <ConfirmDeleteModal
-        open={open}
-        onClose={() => setOpen(false)}
-        perform={perform}
-        label={label}
-        confirmText={confirmText}
-        onDone={onDone}
-      />
+      {/*
+        On-demand рендер: пока юзер не нажал «Удалить», компонент
+        ConfirmDeleteModal не вызывается, поэтому его chunk
+        (input + verifyAccessCodeAction + useTransition) не загружается
+        в момент hydration страницы.
+      */}
+      {open && (
+        <ConfirmDeleteModal
+          open={open}
+          onClose={() => setOpen(false)}
+          perform={perform}
+          label={label}
+          confirmText={confirmText}
+          onDone={onDone}
+        />
+      )}
     </>
   );
 }

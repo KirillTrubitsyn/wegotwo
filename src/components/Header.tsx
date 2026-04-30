@@ -249,10 +249,18 @@ export default function Header({
         </div>
       </div>
 
-      <HeaderAvatarLightbox
-        open={photoOpen}
-        onClose={() => setPhotoOpen(false)}
-      />
+      {/*
+        On-demand рендер: chunk лайтбокса не запрашивается, пока юзер
+        не тапнул по аватару. Header сидит на каждой странице, и
+        pre-загрузка кода portal'а на каждом маршруте была пустой
+        тратой мобильного трафика.
+      */}
+      {photoOpen && (
+        <HeaderAvatarLightbox
+          open={photoOpen}
+          onClose={() => setPhotoOpen(false)}
+        />
+      )}
     </header>
   );
 }
