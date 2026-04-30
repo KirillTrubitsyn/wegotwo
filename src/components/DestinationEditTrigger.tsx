@@ -46,19 +46,27 @@ export default function DestinationEditTrigger(props: Props) {
         <span aria-hidden="true">✎</span>
         <span>Редактировать</span>
       </button>
-      <DestinationEditModal
-        open={open}
-        onClose={() => setOpen(false)}
-        tripSlug={props.tripSlug}
-        destId={props.destId}
-        destName={props.destName}
-        destDescription={props.destDescription}
-        descriptionSource={props.descriptionSource}
-        currentPhotoStoragePath={props.currentPhotoStoragePath}
-        save={props.save}
-        setCover={props.setCover}
-        clearManual={props.clearManual}
-      />
+      {/*
+        On-demand рендер: до первого клика компонент вообще не
+        вызывается, поэтому next/dynamic не подгружает chunk
+        DestinationEditModal в момент hydration. После клика chunk
+        скачается, замаунтится и сам подтянет фото для пикера.
+      */}
+      {open && (
+        <DestinationEditModal
+          open={open}
+          onClose={() => setOpen(false)}
+          tripSlug={props.tripSlug}
+          destId={props.destId}
+          destName={props.destName}
+          destDescription={props.destDescription}
+          descriptionSource={props.descriptionSource}
+          currentPhotoStoragePath={props.currentPhotoStoragePath}
+          save={props.save}
+          setCover={props.setCover}
+          clearManual={props.clearManual}
+        />
+      )}
     </>
   );
 }

@@ -2,21 +2,21 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// В UI используются только веса 400/500/600/700 (`font-medium`,
-// `font-semibold`, `font-bold` + дефолтный 400). Без явного `weight`
-// Next грузил бы variable axis с полным набором осей — на мобильном
-// 4G это десятки лишних килобайт woff2. Пинуем нужные веса, чтобы
-// браузер скачал ровно то, что используется.
+// Используем variable axis обоих шрифтов — без явного `weight`.
+// Эксперимент с пиновкой weight: ["400","500","600","700"] (PR #59)
+// в реальности грузил больше: Google Fonts отдаёт каждый static weight
+// отдельным woff2-файлом, и для двух subsets Inter (latin + cyrillic)
+// получалось 8 файлов против одного-двух variable. Variable woff2
+// сжатее и шрифт начинает рендериться раньше — особенно на мобильном
+// 4G, где network-RTT доминирует над весом самого файла.
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
   display: "swap",
 });
 
 const mono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   variable: "--font-mono",
   display: "swap",
 });
