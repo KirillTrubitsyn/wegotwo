@@ -1,7 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
-import DestinationEditModal from "@/components/DestinationEditModal";
+
+// Модалка тяжёлая (форма + пикер обложки + lazy fetch фото) и
+// открывается ровно по нажатию «Редактировать». До первого открытия
+// её JS не нужен — выгружаем в отдельный chunk и не блокируем
+// hydration страницы города.
+const DestinationEditModal = dynamic(
+  () => import("@/components/DestinationEditModal"),
+  { ssr: false }
+);
 
 type Props = {
   tripSlug: string;
