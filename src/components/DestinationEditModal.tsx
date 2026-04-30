@@ -12,11 +12,13 @@ type PhotoOption = {
 type Props = {
   open: boolean;
   onClose: () => void;
+  /** Slug поездки и destId для лениего GET к /api/.../cover-photos. */
+  tripSlug: string;
+  destId: string;
   destName: string;
   destDescription: string;
   descriptionSource: "auto" | "manual" | null;
   currentPhotoStoragePath: string | null;
-  photos: PhotoOption[];
   /** Сохранить name + description (FormData, см. updateDestinationAction). */
   save: (fd: FormData) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Назначить/снять обложку. photoId=null убирает обложку. */
@@ -41,11 +43,12 @@ type Props = {
 export default function DestinationEditModal({
   open,
   onClose,
+  tripSlug,
+  destId,
   destName,
   destDescription,
   descriptionSource,
   currentPhotoStoragePath,
-  photos,
   save,
   setCover,
   clearManual,
@@ -55,10 +58,44 @@ export default function DestinationEditModal({
   const [coverPath, setCoverPath] = useState(currentPhotoStoragePath);
   const [coverPending, setCoverPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<PhotoOption[] | null>(null);
+  const [photosLoading, setPhotosLoading] = useState(false);
 
   useEffect(() => {
     setCoverPath(currentPhotoStoragePath);
   }, [currentPhotoStoragePath]);
+
+  // Лениво грузим список фотографий для пикера обложки только при
+  // первом открытии модалки. Сервер-render страницы города больше
+  // не подписывает 120 thumb-URL'ов «на всякий случай».
+  useEffect(() => {
+    if (!open || photos !== null || photosLoading) return;
+    let cancelled = false;
+    setPhotosLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/trips/${encodeURIComponent(tripSlug)}/destinations/${encodeURIComponent(destId)}/cover-photos`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as
+          | { ok: true; photos: PhotoOption[] }
+          | { ok: false; error: string };
+        if (cancelled) return;
+        if (json.ok) setPhotos(json.photos);
+        else setError(json.error);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Не удалось загрузить фото");
+      } finally {
+        if (!cancelled) setPhotosLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tripSlug, destId, photos, photosLoading]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,7 +117,7 @@ export default function DestinationEditModal({
         setError(res.error);
       } else {
         const photo = photoId
-          ? photos.find((p) => p.id === photoId) ?? null
+          ? (photos ?? []).find((p) => p.id === photoId) ?? null
           : null;
         setCoverPath(photo?.storagePath ?? null);
         router.refresh();
@@ -208,7 +245,11 @@ export default function DestinationEditModal({
                 </button>
               )}
             </div>
-            {photos.length === 0 ? (
+            {photos === null ? (
+              <div className="text-[12px] text-text-sec bg-bg-surface rounded-btn px-3 py-3">
+                {photosLoading ? "Загружаем фото…" : "Подготавливаем фото…"}
+              </div>
+            ) : photos.length === 0 ? (
               <div className="text-[12px] text-text-sec bg-bg-surface rounded-btn px-3 py-3">
                 В поездке пока нет фотографий. Загрузите фото на вкладке
                 «Фото», чтобы выбрать обложку.

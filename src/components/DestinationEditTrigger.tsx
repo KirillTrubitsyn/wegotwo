@@ -3,18 +3,13 @@
 import { useState } from "react";
 import DestinationEditModal from "@/components/DestinationEditModal";
 
-type PhotoOption = {
-  id: string;
-  thumbUrl: string | null;
-  storagePath: string;
-};
-
 type Props = {
+  tripSlug: string;
+  destId: string;
   destName: string;
   destDescription: string;
   descriptionSource: "auto" | "manual" | null;
   currentPhotoStoragePath: string | null;
-  photos: PhotoOption[];
   save: (fd: FormData) => Promise<{ ok: true } | { ok: false; error: string }>;
   setCover: (
     photoId: string | null
@@ -25,6 +20,10 @@ type Props = {
 /**
  * Кнопка «Редактировать» рядом с заголовком города + одна модалка.
  * Изолирует open-state, чтобы серверная страница оставалась чистой.
+ *
+ * Список фотографий для пикера обложки больше не передаётся пропсами.
+ * Модалка сама подтягивает их при открытии — это убирает 120
+ * `createSignedUrls` round-trip'ов на каждом server render страницы.
  */
 export default function DestinationEditTrigger(props: Props) {
   const [open, setOpen] = useState(false);
@@ -41,11 +40,12 @@ export default function DestinationEditTrigger(props: Props) {
       <DestinationEditModal
         open={open}
         onClose={() => setOpen(false)}
+        tripSlug={props.tripSlug}
+        destId={props.destId}
         destName={props.destName}
         destDescription={props.destDescription}
         descriptionSource={props.descriptionSource}
         currentPhotoStoragePath={props.currentPhotoStoragePath}
-        photos={props.photos}
         save={props.save}
         setCover={props.setCover}
         clearManual={props.clearManual}

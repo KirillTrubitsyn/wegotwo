@@ -20,6 +20,12 @@ import { deleteEventAction, updateDayMetaAction } from "../actions";
 
 export const revalidate = 30;
 
+// TTL подписанных URL: страница ISR (revalidate=30) с stale-while-
+// revalidate может отдавать HTML возрастом многие часы. Час — слишком
+// мало, картинки таймлайна и аттачменты документов начинают отдавать
+// 403. 7 дней покрывает любой реалистичный возраст кеша.
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
+
 /**
  * Обрезает расширение файла и приводит к короткой подписи, чтобы
  * использовать как label в «🎫 Билет {label}». Например
@@ -248,7 +254,7 @@ export default async function DayDetailPage({
       if (photoPaths.length === 0) return new Map<string, string>();
       const { data: signed } = await admin.storage
         .from("photos")
-        .createSignedUrls(photoPaths, 3600);
+        .createSignedUrls(photoPaths, SIGNED_URL_TTL_SECONDS);
       return new Map(
         (signed ?? [])
           .map((s, i) => [photoPaths[i], s.signedUrl] as const)
@@ -277,7 +283,7 @@ export default async function DayDetailPage({
       if (paths.length > 0) {
         const { data: signed } = await admin.storage
           .from("documents")
-          .createSignedUrls(paths, 3600);
+          .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
         const signedByPath = new Map(
           (signed ?? [])
             .map((s, i) => [paths[i], s.signedUrl] as const)
