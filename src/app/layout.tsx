@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -12,6 +12,15 @@ const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
+});
+
+// Fraunces — заголовочный засечный. Кириллицы нет в Google Fonts —
+// для русских заголовков браузер подставит системный serif по стеку.
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  display: "swap",
+  axes: ["opsz"],
 });
 
 export const metadata: Metadata = {
@@ -37,14 +46,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" className={`${inter.variable} ${mono.variable}`}>
+    <html
+      lang="ru"
+      className={`${inter.variable} ${mono.variable} ${fraunces.variable}`}
+    >
       <head>
-        {/*
-          iOS Safari решает запускать сайт в standalone режиме с домашнего
-          экрана только по apple-mobile-web-app-capable. Прописываем теги
-          вручную, не полагаясь на сериализацию Metadata API, чтобы они
-          гарантированно присутствовали в первом HTML-ответе.
-        */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -54,29 +60,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="WeGoTwo" />
         <meta name="application-name" content="WeGoTwo" />
         <link rel="manifest" href="/manifest.json" />
-        <link
-          rel="apple-touch-icon"
-          sizes="180x180"
-          href="/apple-touch-icon.png"
-        />
-        <link
-          rel="apple-touch-icon-precomposed"
-          sizes="180x180"
-          href="/apple-touch-icon.png"
-        />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png" />
         <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="192x192"
-          href="/icons/icon-192x192.png"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="512x512"
-          href="/icons/icon-512x512.png"
-        />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
       </head>
       <body className="font-sans">
         <div className="min-h-[100svh] mx-auto max-w-app bg-white shadow-[0_0_60px_rgba(0,0,0,0.04)]">
