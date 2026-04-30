@@ -246,7 +246,6 @@ export default async function TripOverviewPage({
                           fill
                           sizes="(max-width: 480px) 100vw, 440px"
                           className="object-cover"
-                          unoptimized
                         />
                         <div className="absolute right-4 bottom-3 text-right text-white">
                           <div className="text-[24px] font-bold leading-tight drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">

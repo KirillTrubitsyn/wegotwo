@@ -5,8 +5,11 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { getWeatherInfo } from "@/lib/weather";
 import { swatch } from "@/lib/trip-colors";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Page is dynamic via searchParams (lat/lon/tz), but we still want
+// the upstream Open-Meteo fetch to be cached in Next's Data Cache for
+// 10 минут. С `force-dynamic` Next отключал бы кэш fetch'ей и каждый
+// заход в чип погоды бил бы по api.open-meteo.com.
+export const revalidate = 600;
 
 type DailyForecast = {
   date: string;

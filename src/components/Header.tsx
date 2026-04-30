@@ -243,8 +243,11 @@ export default function Header({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/photos/K&M.svg"
+              src="/photos/K&M.webp"
               alt="Кирилл и Марина"
+              width={42}
+              height={42}
+              decoding="async"
               className="h-[42px] w-[42px] rounded-full shadow-avatar object-cover bg-white"
             />
           </button>
@@ -281,8 +284,11 @@ export default function Header({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/photos/K&M.svg"
+                  src="/photos/K&M.webp"
                   alt="Кирилл и Марина"
+                  width={600}
+                  height={600}
+                  decoding="async"
                   className="w-full h-auto block"
                 />
               </div>

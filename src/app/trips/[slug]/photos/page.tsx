@@ -11,6 +11,10 @@ import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
 export const revalidate = 30;
 
 const PHOTOS_BUCKET = "photos";
+// TTL подписанных миниатюр должен переживать stale-while-revalidate
+// у ISR (revalidate=30 → реальный HTML может быть часами). 7 дней
+// — безопасный запас, иначе галерея ловит 403 на «протухшие» ссылки.
+const THUMB_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type Trip = {
   id: string;
@@ -80,7 +84,7 @@ export default async function PhotosPage({
   if (thumbPaths.length > 0) {
     const { data: signed } = await admin.storage
       .from(PHOTOS_BUCKET)
-      .createSignedUrls(thumbPaths, 60 * 60);
+      .createSignedUrls(thumbPaths, THUMB_URL_TTL_SECONDS);
     for (const s of signed ?? []) {
       if (s.path && s.signedUrl) urlMap.set(s.path, s.signedUrl);
     }

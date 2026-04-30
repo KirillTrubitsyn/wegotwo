@@ -16,7 +16,10 @@ import {
   clearManualDescriptionAction,
 } from "../actions";
 
-export const dynamic = "force-dynamic";
+// ISR — как и остальные страницы поездки. Все мутации вызывают
+// revalidatePath(`/trips/${slug}/destinations/${destId}`), поэтому
+// данные обновляются сразу после правки города.
+export const revalidate = 30;
 
 type Trip = {
   id: string;
@@ -162,19 +165,23 @@ export default async function DestinationPage({
     dateFrom: (t.date_from as string | null) ?? null,
   }));
 
-  // Параллелим stay, signed URL обложки, список расходов, привязанных
-  // к этому городу, и список фотографий поездки для пикера обложки.
+  // Параллелим stay, signed URL обложки и список расходов, привязанных
+  // к этому городу. Список фотографий поездки для пикера обложки
+  // больше не грузится здесь — он подтягивается лениво при открытии
+  // модалки редактирования (см. /api/.../cover-photos), чтобы не
+  // подписывать 120 thumb-URL'ов на каждом заходе в город.
+  // TTL обложки города: страница ISR с возможным возрастом часами,
+  // так что 7 дней безопаснее одного часа.
   const coverPromise: Promise<string | null> = dest.photo_path
     ? admin.storage
         .from("photos")
-        .createSignedUrl(dest.photo_path, 3600)
+        .createSignedUrl(dest.photo_path, 60 * 60 * 24 * 7)
         .then((r) => r.data?.signedUrl ?? null)
     : Promise.resolve(null);
   const [
     { data: stayData },
     coverUrl,
     { data: expData },
-    { data: photoData },
   ] = await Promise.all([
     admin
       .from("stays")
@@ -193,43 +200,9 @@ export default async function DestinationPage({
       .eq("trip_id", trip.id)
       .eq("destination_id", dest.id)
       .order("occurred_on", { ascending: false }),
-    admin
-      .from("photos")
-      .select("id,storage_path,thumbnail_path,taken_at")
-      .eq("trip_id", trip.id)
-      .order("taken_at", { ascending: false, nullsFirst: false })
-      .limit(120),
   ]);
   const stay = (stayData ?? null) as StayRow | null;
   const raw: StayRaw = stay?.raw ?? {};
-
-  // Готовим миниатюры для пикера обложки. Используем thumbnail_path,
-  // если он сгенерирован (см. /lib/photos/thumb.ts), иначе оригинал.
-  const photoRows = (photoData ?? []) as Array<{
-    id: string;
-    storage_path: string;
-    thumbnail_path: string | null;
-  }>;
-  const thumbPaths = photoRows
-    .map((p) => p.thumbnail_path ?? p.storage_path)
-    .filter((p): p is string => typeof p === "string" && p.length > 0);
-  const thumbUrlByPath = new Map<string, string>();
-  if (thumbPaths.length > 0) {
-    const { data: signed } = await admin.storage
-      .from("photos")
-      .createSignedUrls(thumbPaths, 60 * 60);
-    for (const s of signed ?? []) {
-      if (s.path && s.signedUrl) thumbUrlByPath.set(s.path, s.signedUrl);
-    }
-  }
-  const photoOptions = photoRows.map((p) => {
-    const key = p.thumbnail_path ?? p.storage_path;
-    return {
-      id: p.id,
-      thumbUrl: thumbUrlByPath.get(key) ?? null,
-      storagePath: p.storage_path,
-    };
-  });
 
   // Агрегаты по расходам этого города. Суммы считаем в trip.base_currency,
   // которую commit-слой уже записал в amount_base / currency_base.
@@ -312,11 +285,12 @@ export default async function DestinationPage({
             </div>
             {!isPast && (
               <DestinationEditTrigger
+                tripSlug={trip.slug}
+                destId={dest.id}
                 destName={dest.name}
                 destDescription={dest.description ?? ""}
                 descriptionSource={dest.description_source}
                 currentPhotoStoragePath={dest.photo_path}
-                photos={photoOptions}
                 save={async (fd: FormData) => {
                   "use server";
                   return await updateDestinationAction(
