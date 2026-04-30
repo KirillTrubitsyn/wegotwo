@@ -2,14 +2,21 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+// В UI используются только веса 400/500/600/700 (`font-medium`,
+// `font-semibold`, `font-bold` + дефолтный 400). Без явного `weight`
+// Next грузил бы variable axis с полным набором осей — на мобильном
+// 4G это десятки лишних килобайт woff2. Пинуем нужные веса, чтобы
+// браузер скачал ровно то, что используется.
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
   display: "swap",
 });
 
 const mono = JetBrains_Mono({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-mono",
   display: "swap",
 });

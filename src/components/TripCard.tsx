@@ -89,6 +89,12 @@ export default function TripCard({
   return (
     <Link
       href={`/trips/${slug}`}
+      // Архивные плитки на главной — `muted`. По умолчанию Next
+      // префетчит каждую `Link`-цель сразу после mount; для архива
+      // это тратит мобильный трафик на страницы, в которые
+      // пользователь почти не ходит. Hero и upcoming оставляем
+      // с дефолтным prefetch для мгновенной навигации.
+      prefetch={muted ? false : undefined}
       className={`block relative rounded-card overflow-hidden shadow-card aspect-square ${bgGradient} ${
         coverUrl ? "bg-bg-surface" : ""
       } ${muted ? "opacity-80" : ""}`}

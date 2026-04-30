@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useWeather } from "@/lib/hooks/useWeather";
 import { swatch, type TripColor } from "@/lib/trip-colors";
+
+// Лайтбокс с фотографией K&M открывается только по клику на аватар.
+// Грузим его лениво, чтобы portal + keydown listener + большая
+// картинка не сидели в основном bundle Header'а на каждой странице.
+const HeaderAvatarLightbox = dynamic(
+  () => import("./HeaderAvatarLightbox"),
+  { ssr: false }
+);
 
 type TripCtx = {
   /** IANA TZ of the trip, e.g. "Europe/Podgorica" */
@@ -83,10 +91,7 @@ export default function Header({
     time: string;
   }>({ weekday: "", date: "", time: "" });
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
-
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!trip || trip.hideClock) return;
@@ -113,16 +118,6 @@ export default function Header({
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
   }, [mskClock]);
-
-  // Close the lightbox on Escape.
-  useEffect(() => {
-    if (!photoOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPhotoOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [photoOpen]);
 
   // Trip weather if we have coordinates; otherwise fall back to Moscow.
   const tripHasCoords =
@@ -254,48 +249,10 @@ export default function Header({
         </div>
       </div>
 
-      {mounted && photoOpen
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-md flex items-center justify-center"
-              onClick={() => setPhotoOpen(false)}
-              role="dialog"
-              aria-modal="true"
-            >
-              <button
-                type="button"
-                onClick={() => setPhotoOpen(false)}
-                className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-[1000]"
-                style={{ marginTop: "env(safe-area-inset-top)" }}
-                aria-label="Закрыть"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M18 6L6 18M6 6l12 12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-              <div
-                className="w-[90vw] max-w-[400px] rounded-[16px] overflow-hidden shadow-2xl bg-white"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/photos/K&M.webp"
-                  alt="Кирилл и Марина"
-                  width={600}
-                  height={600}
-                  decoding="async"
-                  className="w-full h-auto block"
-                />
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
+      <HeaderAvatarLightbox
+        open={photoOpen}
+        onClose={() => setPhotoOpen(false)}
+      />
     </header>
   );
 }
