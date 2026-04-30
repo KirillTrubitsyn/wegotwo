@@ -179,7 +179,7 @@ export default async function PhotosPage({
         + Фото
       </Link>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="photos" />
     </>
   );
 }

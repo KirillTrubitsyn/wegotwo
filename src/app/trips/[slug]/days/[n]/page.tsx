@@ -448,7 +448,7 @@ export default async function DayDetailPage({
         </div>
       </div>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="days" />
     </>
   );
 }

@@ -153,7 +153,7 @@ export default async function DocsPage({
         + Документ
       </Link>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="docs" />
     </>
   );
 }

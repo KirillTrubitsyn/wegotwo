@@ -183,7 +183,7 @@ export default async function TripDaysPage({
         )}
       </div>
 
-      <BottomNav slug={trip.slug} />
+      <BottomNav slug={trip.slug} active="days" />
     </>
   );
 }
