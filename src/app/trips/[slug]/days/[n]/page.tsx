@@ -2,20 +2,44 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { formatTimeInTz } from "@/lib/format-tz";
-import OfflineBanner from "@/components/OfflineBanner";
+import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
-
-/**
- * Детальный экран дня · D2 «По фазам»
- * — Шапка: Черногория / N из total + табы дней пн/1 вт/2 ...
- * — 4 метрики: Потрачено / КМ / Фото / Погода (мок-значения, кроме погоды).
- * — Секции «Утро / День / Вечер» — события группируются по часу start_at.
- * — Кнопка «+ добавить» ведёт на существующий /events/new.
- */
+import OfflineBanner from "@/components/OfflineBanner";
+import Timeline, {
+  type TimelineEvent,
+  type TimelineLink,
+  type TimelineAttachment,
+  type TourDetails,
+} from "@/components/Timeline";
+import DayActionsMenu from "@/components/DayActionsMenu";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHeaderDestination } from "@/lib/trips/header-ctx";
+import { formatTimeInTz } from "@/lib/format-tz";
+import { displayDayDetail } from "@/lib/ingest/day-detail";
+import { deleteEventAction, updateDayMetaAction } from "../actions";
 
 export const revalidate = 30;
+
+// TTL подписанных URL: страница ISR (revalidate=30) с stale-while-
+// revalidate может отдавать HTML возрастом многие часы. Час — слишком
+// мало, картинки таймлайна и аттачменты документов начинают отдавать
+// 403. 7 дней покрывает любой реалистичный возраст кеша.
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+/**
+ * Обрезает расширение файла и приводит к короткой подписи, чтобы
+ * использовать как label в «🎫 Билет {label}». Например
+ * «boarding_pass_kirill.pdf» → «boarding pass kirill».
+ * Возвращаем null для пустых/шумных значений.
+ */
+function cleanDocTitle(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = raw.replace(/\.(pdf|jpe?g|png|heic|webp)$/i, "").trim();
+  if (!t) return null;
+  // Шумные автогенераты вроде «document 12345» не тащим — лучше null.
+  if (/^document[\s_-]*\d+$/i.test(t)) return null;
+  return t;
+}
 
 type Trip = {
   id: string;
@@ -29,64 +53,43 @@ type Trip = {
   archived_at: string | null;
 };
 
-type DayRow = { id: string; date: string; title: string | null };
+type DayRow = {
+  id: string;
+  date: string;
+  title: string | null;
+  detail: string | null;
+  badge: string | null;
+};
+
+type EventAttachmentRow = {
+  document_id: string;
+  label: string | null;
+};
 
 type EventRow = {
   id: string;
   title: string;
   kind: string;
   notes: string | null;
+  map_url: string | null;
+  website: string | null;
+  menu_url: string | null;
+  phone: string | null;
+  emoji: string | null;
+  address: string | null;
+  photo_path: string | null;
   start_at: string | null;
   end_at: string | null;
-  address: string | null;
   sort_order: number | null;
+  booking_url: string | null;
+  map_embed_url: string | null;
+  links: TimelineLink[] | null;
+  description: string | null;
+  tour_details: TourDetails | null;
+  ticket_url: string | null;
+  document_id: string | null;
+  attachments: EventAttachmentRow[] | null;
 };
-
-// Accent per event kind — перекликается с прототипом D2.
-const KIND_ACCENT: Record<string, string> = {
-  flight: "#3478F6",
-  transfer: "#8B8578",
-  hotel: "#2F7D4B",
-  food: "#C27A3E",
-  restaurant: "#C27A3E",
-  activity: "#1D1D1F",
-  plan: "#1D1D1F",
-};
-const KIND_GLYPH: Record<string, string> = {
-  flight: "✈",
-  transfer: "→",
-  hotel: "■",
-  food: "●",
-  restaurant: "●",
-  activity: "○",
-  plan: "○",
-};
-const KIND_LABEL: Record<string, string> = {
-  flight: "перелёт",
-  transfer: "трансфер",
-  hotel: "отель",
-  food: "еда",
-  restaurant: "еда",
-  activity: "план",
-  plan: "план",
-};
-
-function hourOf(iso: string | null, tz: string): number | null {
-  if (!iso) return null;
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: tz,
-    hour: "2-digit",
-    hour12: false,
-  });
-  const h = Number(fmt.format(new Date(iso)));
-  return Number.isFinite(h) ? h : null;
-}
-function phaseOf(h: number | null): "morning" | "day" | "evening" {
-  if (h === null) return "day";
-  if (h < 12) return "morning";
-  if (h < 18) return "day";
-  return "evening";
-}
 
 export default async function DayDetailPage({
   params,
@@ -101,259 +104,351 @@ export default async function DayDetailPage({
 
   const { data: tripData } = await admin
     .from("trips")
-    .select("id,slug,title,country,primary_tz,color,date_from,date_to,archived_at")
+    .select(
+      "id,slug,title,country,primary_tz,color,date_from,date_to,archived_at"
+    )
     .eq("slug", slug)
     .maybeSingle();
   if (!tripData) notFound();
   const trip = tripData as Trip;
 
-  const { data: daysData } = await admin
-    .from("days")
-    .select("id,date,title")
-    .eq("trip_id", trip.id)
-    .order("date", { ascending: true });
+  // Параллелим days и резолв города заголовка — они независимы.
+  const [{ data: daysData }, stayCity] = await Promise.all([
+    admin
+      .from("days")
+      .select("id,date,title,detail,badge")
+      .eq("trip_id", trip.id)
+      .order("date", { ascending: true }),
+    resolveHeaderDestination(admin, trip.id, trip.primary_tz),
+  ]);
+
   const days = (daysData ?? []) as DayRow[];
   const day = days[dayNumber - 1];
   if (!day) notFound();
+
   const totalDays = days.length;
+  const prevHref =
+    dayNumber > 1 ? `/trips/${trip.slug}/days/${dayNumber - 1}` : null;
+  const nextHref =
+    dayNumber < totalDays ? `/trips/${trip.slug}/days/${dayNumber + 1}` : null;
 
-  const { data: eventsData } = await admin
-    .from("events")
-    .select("id,title,kind,notes,start_at,end_at,address,sort_order")
-    .eq("day_id", day.id)
-    .order("start_at", { ascending: true, nullsFirst: false })
-    .order("sort_order", { ascending: true });
-  const events = (eventsData ?? []) as EventRow[];
-
-  const bucketed: Record<"morning" | "day" | "evening", EventRow[]> = {
-    morning: [],
-    day: [],
-    evening: [],
-  };
-  for (const e of events) {
-    bucketed[phaseOf(hourOf(e.start_at, trip.primary_tz))].push(e);
+  // Пробуем прочитать расширенные поля (phase 14). Если миграция
+  // `20260420000002_phase14_event_links.sql` ещё не применена к базе
+  // (`booking_url`/`map_embed_url`/`links` отсутствуют), запрос упадёт
+  // c 42703 и таймлайн окажется пустым — делаем fallback на базовый
+  // набор колонок, чтобы события всё равно отображались.
+  // Расширенный select включает обе волны phase14 и phase16. Если
+  // ни те, ни другие колонки не применены, делаем два отступа подряд.
+  let rawEvents: EventRow[] = [];
+  {
+    const full = await admin
+      .from("events")
+      .select(
+        "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links,description,tour_details,ticket_url,document_id,attachments"
+      )
+      .eq("day_id", day.id)
+      .order("start_at", { ascending: true, nullsFirst: false })
+      .order("sort_order", { ascending: true });
+    if (!full.error) {
+      rawEvents = (full.data ?? []) as EventRow[];
+    } else {
+      console.warn(
+        "[day] full events select failed, trying phase17-only:",
+        full.error.message
+      );
+      const phase17 = await admin
+        .from("events")
+        .select(
+          "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links,description,tour_details,ticket_url,document_id"
+        )
+        .eq("day_id", day.id)
+        .order("start_at", { ascending: true, nullsFirst: false })
+        .order("sort_order", { ascending: true });
+      if (!phase17.error) {
+        rawEvents = ((phase17.data ?? []) as Omit<
+          EventRow,
+          "attachments"
+        >[]).map((e) => ({ ...e, attachments: null }));
+      } else {
+        const phase14 = await admin
+          .from("events")
+          .select(
+            "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order,booking_url,map_embed_url,links"
+          )
+          .eq("day_id", day.id)
+          .order("start_at", { ascending: true, nullsFirst: false })
+          .order("sort_order", { ascending: true });
+        if (!phase14.error) {
+          rawEvents = ((phase14.data ?? []) as Omit<
+            EventRow,
+            | "description"
+            | "tour_details"
+            | "ticket_url"
+            | "document_id"
+            | "attachments"
+          >[]).map((e) => ({
+            ...e,
+            description: null,
+            tour_details: null,
+            ticket_url: null,
+            document_id: null,
+            attachments: null,
+          }));
+        } else {
+          const basic = await admin
+            .from("events")
+            .select(
+              "id,title,kind,notes,map_url,website,menu_url,phone,emoji,address,photo_path,start_at,end_at,sort_order"
+            )
+            .eq("day_id", day.id)
+            .order("start_at", { ascending: true, nullsFirst: false })
+            .order("sort_order", { ascending: true });
+          rawEvents = ((basic.data ?? []) as Omit<
+            EventRow,
+            | "booking_url"
+            | "map_embed_url"
+            | "links"
+            | "description"
+            | "tour_details"
+            | "ticket_url"
+            | "document_id"
+            | "attachments"
+          >[]).map((e) => ({
+            ...e,
+            booking_url: null,
+            map_embed_url: null,
+            links: null,
+            description: null,
+            tour_details: null,
+            ticket_url: null,
+            document_id: null,
+            attachments: null,
+          }));
+        }
+      }
+    }
   }
 
-  const weekday = format(parseISO(day.date), "EEE", { locale: ru })
-    .replace(/\.?$/, "")
-    .toLowerCase();
-  const dateShort = format(parseISO(day.date), "d MMMM", { locale: ru });
+  // Batch signed URLs for all photo_path values on this day.
+  const photoPaths = rawEvents
+    .map((e) => e.photo_path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+
+  // Собираем document_id из events.document_id (legacy) и из
+  // events.attachments (phase 18 — несколько посадочных на рейс).
+  const docIdSet = new Set<string>();
+  for (const e of rawEvents) {
+    if (e.document_id) docIdSet.add(e.document_id);
+    for (const a of e.attachments ?? []) {
+      if (a?.document_id) docIdSet.add(a.document_id);
+    }
+  }
+  const docIds = Array.from(docIdSet);
+
+  // Подписывание URL-ов фото и выборка документов по событию
+  // независимы — гоним параллельно, чтобы не ждать два round-trip'а
+  // подряд. Внутри doc-ветки последовательность сохраняется: сначала
+  // читаем documents, потом подписываем их storage_path.
+  const [photoUrlByPath, docData] = await Promise.all([
+    (async () => {
+      if (photoPaths.length === 0) return new Map<string, string>();
+      const { data: signed } = await admin.storage
+        .from("photos")
+        .createSignedUrls(photoPaths, SIGNED_URL_TTL_SECONDS);
+      return new Map(
+        (signed ?? [])
+          .map((s, i) => [photoPaths[i], s.signedUrl] as const)
+          .filter((pair): pair is readonly [string, string] =>
+            typeof pair[1] === "string" && pair[1].length > 0
+          )
+      );
+    })(),
+    (async () => {
+      const ticketUrlByDoc = new Map<string, string>();
+      const docTitleById = new Map<string, string>();
+      if (docIds.length === 0) return { ticketUrlByDoc, docTitleById };
+      const { data: docRows } = await admin
+        .from("documents")
+        .select("id,storage_path,title")
+        .in("id", docIds);
+      const rows = (docRows ?? []) as Array<{
+        id: string;
+        storage_path: string;
+        title: string | null;
+      }>;
+      for (const r of rows) {
+        if (r.title) docTitleById.set(r.id, r.title);
+      }
+      const paths = rows.map((d) => d.storage_path);
+      if (paths.length > 0) {
+        const { data: signed } = await admin.storage
+          .from("documents")
+          .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
+        const signedByPath = new Map(
+          (signed ?? [])
+            .map((s, i) => [paths[i], s.signedUrl] as const)
+            .filter((pair): pair is readonly [string, string] =>
+              typeof pair[1] === "string" && pair[1].length > 0
+            )
+        );
+        for (const d of rows) {
+          const u = signedByPath.get(d.storage_path);
+          if (u) ticketUrlByDoc.set(d.id, u);
+        }
+      }
+      return { ticketUrlByDoc, docTitleById };
+    })(),
+  ]);
+  const { ticketUrlByDoc, docTitleById } = docData;
+
+  /**
+   * Строим список TimelineAttachment для одного события.
+   * Приоритет:
+   *   1) events.attachments (phase 18) — одна запись на документ,
+   *      label либо сохранённый, либо documents.title как fallback;
+   *   2) legacy events.document_id — оборачиваем в один элемент.
+   */
+  function buildAttachments(e: EventRow): TimelineAttachment[] {
+    const out: TimelineAttachment[] = [];
+    const seen = new Set<string>();
+    for (const a of e.attachments ?? []) {
+      if (!a?.document_id || seen.has(a.document_id)) continue;
+      const url = ticketUrlByDoc.get(a.document_id);
+      if (!url) continue;
+      seen.add(a.document_id);
+      out.push({
+        url,
+        label: a.label ?? cleanDocTitle(docTitleById.get(a.document_id)),
+      });
+    }
+    if (out.length === 0 && e.document_id) {
+      const url = ticketUrlByDoc.get(e.document_id);
+      if (url) {
+        out.push({
+          url,
+          label: cleanDocTitle(docTitleById.get(e.document_id)),
+        });
+      }
+    }
+    return out;
+  }
+
+  const events: TimelineEvent[] = rawEvents.map((e) => ({
+    id: e.id,
+    title: e.title,
+    kind: e.kind,
+    notes: e.notes,
+    map_url: e.map_url,
+    website: e.website,
+    menu_url: e.menu_url,
+    phone: e.phone,
+    emoji: e.emoji,
+    address: e.address,
+    photo_url: e.photo_path ? photoUrlByPath.get(e.photo_path) ?? null : null,
+    start_time: formatTimeInTz(e.start_at, trip.primary_tz),
+    end_time: formatTimeInTz(e.end_at, trip.primary_tz),
+    booking_url: e.booking_url,
+    map_embed_url: e.map_embed_url,
+    links: Array.isArray(e.links) ? e.links : [],
+    description: e.description,
+    tour_details: e.tour_details ?? null,
+    ticket_url: e.ticket_url,
+    document_url: e.document_id
+      ? ticketUrlByDoc.get(e.document_id) ?? null
+      : null,
+    attachments: buildAttachments(e),
+  }));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const isPast = Boolean(trip.archived_at) || trip.date_to < today;
+
+  const dateLabel = format(parseISO(day.date), "EEEE, d MMMM yyyy", {
+    locale: ru,
+  });
 
   return (
     <>
       <OfflineBanner />
-      {/* ——— Top bar ——— */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-black/5 px-5 pt-[max(14px,env(safe-area-inset-top))] pb-3 flex items-center justify-between">
-        <Link
-          href="/"
-          className="font-mono text-[11px] tracking-[0.16em] uppercase text-[#1D1D1F]"
-        >
-          ‹ Обзор
-        </Link>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/wegotwo-wordmark.svg" alt="" className="h-[28px]" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/photos/K&M.svg"
-          alt=""
-          className="h-[30px] w-[30px] rounded-full object-cover"
-        />
-      </header>
+      <Header
+        title={day.title || `День ${dayNumber}`}
+        subtitle={dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)}
+        back={`/trips/${trip.slug}/days`}
+        trip={
+          !isPast
+            ? {
+                primaryTz: trip.primary_tz,
+                color: trip.color,
+                clockLabel:
+                  stayCity?.label ??
+                  (trip.country
+                    ? trip.country.slice(0, 3).toUpperCase()
+                    : "TZ"),
+                lat: stayCity?.lat ?? null,
+                lon: stayCity?.lon ?? null,
+                hideClock: false,
+              }
+            : null
+        }
+      />
 
-      <main className="px-5 pb-28 text-[#1D1D1F]">
-        {/* ——— Trip meta ——— */}
-        <section className="pt-4 pb-4 border-b border-black/10">
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#8B8578]">
-                Поездка
-              </div>
-              <h1 className="font-serif font-light text-[28px] tracking-[-0.03em] leading-none mt-1">
-                {trip.title}
-              </h1>
-            </div>
-            <div className="text-right">
-              <div className="font-mono text-[10px] tracking-[0.2em] text-[#8B8578]">ДЕНЬ</div>
-              <div className="font-serif font-extralight text-[40px] leading-[0.9]">
-                {dayNumber}
-                <span className="text-[#8B8578] text-[22px]">/{totalDays}</span>
-              </div>
-            </div>
+      <div className="px-5 pb-28 pt-4 space-y-5">
+        {/* Timeline */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] uppercase tracking-[0.6px] text-text-sec font-semibold">
+              Таймлайн
+            </h2>
+            <DayActionsMenu
+              slug={trip.slug}
+              dayNumber={dayNumber}
+              dayTitle={day.title ?? ""}
+              dayDetail={displayDayDetail(day.detail) ?? ""}
+              dayNumberLabel={`День ${dayNumber}`}
+              events={events.map((e) => ({
+                id: e.id,
+                title: e.title,
+                time: e.start_time,
+              }))}
+              updateDayMeta={async (fd: FormData) => {
+                "use server";
+                await updateDayMetaAction(slug, dayNumber, fd);
+              }}
+              deleteEvent={async (eventId: string) => {
+                "use server";
+                await deleteEventAction(slug, dayNumber, eventId);
+              }}
+              readOnly={isPast}
+            />
           </div>
-          <DayTabs slug={trip.slug} days={days} active={dayNumber} />
-        </section>
+          <Timeline events={events} />
+        </div>
 
-        {/* ——— 4 metrics: Потрачено / КМ / Фото / Погода ———
-            TODO(real data): заменить значения ниже на агрегаты из БД.
-            — ПОТРАЧЕНО: sum(expenses.amount_rub_norm) where date = day.date
-            — КМ: из событий transfer/flight (distance_km)
-            — ФОТО: count(photos) where taken_at::date = day.date
-            — ПОГОДА: useWeather(trip.lat, trip.lon) либо forecast API
-        */}
-        <section className="pt-4 grid grid-cols-4 gap-3 items-end">
-          {[
-            { l: "ПОТРАЧЕНО", v: "€94" },
-            { l: "КМ", v: "47" },
-            { l: "ФОТО", v: "24" },
-            { l: "ПОГОДА", v: "+19°", icon: "☀" },
-          ].map((s) => (
-            <div key={s.l}>
-              <div className="font-mono text-[9px] tracking-[0.18em] text-[#8B8578]">
-                {s.l}
-              </div>
-              <div className="font-serif font-light text-[22px] leading-none mt-1 inline-flex items-baseline gap-1">
-                {s.v}
-                {s.icon && <span className="text-[14px]">{s.icon}</span>}
-              </div>
-            </div>
-          ))}
-        </section>
-
-        {/* ——— Phases ——— */}
-        {(
-          [
-            { k: "morning", name: "Утро", range: "06:00 — 12:00" },
-            { k: "day", name: "День", range: "12:00 — 18:00" },
-            { k: "evening", name: "Вечер", range: "18:00 — 00:00" },
-          ] as const
-        ).map((p) => (
-          <section key={p.k} className="pt-6">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-serif font-light text-[30px] tracking-[-0.03em] leading-none">
-                {p.name}
-              </h2>
-              <div className="font-mono text-[10px] tracking-[0.12em] text-[#8B8578]">
-                {p.range}
-              </div>
-            </div>
-            <div className="mt-3 border-t border-black/10">
-              {bucketed[p.k].length === 0 ? (
-                <div className="py-4 font-mono text-[11px] tracking-[0.08em] uppercase text-[#AEAEB2]">
-                  — свободно —
-                </div>
-              ) : (
-                bucketed[p.k].map((e, i, arr) => {
-                  const time = formatTimeInTz(e.start_at, trip.primary_tz) ?? "—";
-                  const accent = KIND_ACCENT[e.kind] ?? "#1D1D1F";
-                  const glyph = KIND_GLYPH[e.kind] ?? "·";
-                  return (
-                    <Link
-                      key={e.id}
-                      href={`/trips/${trip.slug}/days/${dayNumber}/events/${e.id}`}
-                      className={`grid grid-cols-[54px_22px_1fr] gap-3 items-center py-3 ${
-                        i < arr.length - 1 ? "border-b border-black/5" : ""
-                      }`}
-                    >
-                      <div className="font-serif font-light text-[18px] leading-none">
-                        {time}
-                      </div>
-                      <span
-                        className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full font-mono text-[11px] font-semibold leading-none"
-                        style={{ border: `1px solid ${accent}`, color: accent }}
-                      >
-                        {glyph}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-serif text-[17px] leading-[1.15] truncate">
-                          {e.title}
-                        </div>
-                        {(e.notes || e.address) && (
-                          <div className="font-mono text-[10px] text-[#8B8578] tracking-[0.05em] mt-0.5 truncate">
-                            {e.notes ?? e.address}
-                          </div>
-                        )}
-                      </div>
-                    </Link>
-                  );
-                })
-              )}
-              <Link
-                href={`/trips/${trip.slug}/days/${dayNumber}/events/new`}
-                className="block w-full py-2.5 mt-1.5 border-t border-dashed border-black/20 font-mono text-[10px] tracking-[0.16em] uppercase text-[#8B8578] text-center"
-              >
-                + добавить
-              </Link>
-            </div>
-          </section>
-        ))}
-
-        {/* ——— prev/next ——— */}
-        <div className="flex gap-3 mt-8">
-          {dayNumber > 1 ? (
+        {/* Prev / Next navigation */}
+        <div className="flex gap-3">
+          {prevHref ? (
             <Link
-              href={`/trips/${trip.slug}/days/${dayNumber - 1}`}
-              className="flex-1 py-3 text-center font-mono text-[11px] tracking-[0.14em] uppercase border border-black/10 rounded-[10px] active:bg-black/5"
+              href={prevHref}
+              className="flex-1 bg-white border border-black/[0.08] rounded-btn py-[12px] text-[13px] font-medium text-center text-text-main active:bg-bg-surface"
             >
-              ‹ День {dayNumber - 1}
+              ← День {dayNumber - 1}
             </Link>
           ) : (
             <div className="flex-1" />
           )}
-          {dayNumber < totalDays ? (
+          {nextHref ? (
             <Link
-              href={`/trips/${trip.slug}/days/${dayNumber + 1}`}
-              className="flex-1 py-3 text-center font-mono text-[11px] tracking-[0.14em] uppercase border border-black/10 rounded-[10px] active:bg-black/5"
+              href={nextHref}
+              className="flex-1 bg-white border border-black/[0.08] rounded-btn py-[12px] text-[13px] font-medium text-center text-text-main active:bg-bg-surface"
             >
-              День {dayNumber + 1} ›
+              День {dayNumber + 1} →
             </Link>
           ) : (
             <div className="flex-1" />
           )}
         </div>
+      </div>
 
-        <div className="text-center mt-4 font-mono text-[9px] tracking-[0.14em] text-[#AEAEB2]">
-          {weekday.toUpperCase()} · {dateShort.toUpperCase()}
-        </div>
-      </main>
       <BottomNav slug={trip.slug} />
     </>
-  );
-}
-
-/* ——— Day tabs ——— */
-function DayTabs({
-  slug,
-  days,
-  active,
-}: {
-  slug: string;
-  days: DayRow[];
-  active: number;
-}) {
-  return (
-    <div className="flex gap-1.5 mt-4 overflow-x-auto no-scrollbar -mx-5 px-5">
-      {days.map((d, i) => {
-        const n = i + 1;
-        const isActive = n === active;
-        const wd = format(parseISO(d.date), "EEEEEE", { locale: ru })
-          .replace(/\.?$/, "")
-          .toLowerCase();
-        const dm = format(parseISO(d.date), "d");
-        return (
-          <Link
-            key={d.id}
-            href={`/trips/${slug}/days/${n}`}
-            className={`shrink-0 min-w-[44px] pt-2 pb-2 text-center ${
-              isActive ? "border-t-2 border-[#1D1D1F]" : "border-t-2 border-black/10"
-            }`}
-          >
-            <div
-              className={`font-mono text-[10px] tracking-[0.08em] ${
-                isActive ? "text-[#1D1D1F] font-bold" : "text-[#8B8578]"
-              }`}
-            >
-              {wd}
-            </div>
-            <div
-              className={`font-serif mt-0.5 ${
-                isActive ? "text-[18px] font-normal" : "text-[18px] font-light text-[#8B8578]"
-              }`}
-            >
-              {dm}
-            </div>
-          </Link>
-        );
-      })}
-    </div>
   );
 }
