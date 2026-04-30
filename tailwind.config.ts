@@ -30,6 +30,10 @@ const config: Config = {
         "teal-lt": "#F0FDFA",
         pink: "#EC4899",
         "pink-lt": "#FDF2F8",
+        ink: "#1D1D1F",
+        paper: "#FFFFFF",
+        fog: "#8B8578",
+        rule: "rgba(20,16,10,0.1)",
       },
       fontFamily: {
         sans: [
@@ -46,6 +50,13 @@ const config: Config = {
           "ui-monospace",
           "SFMono-Regular",
           "monospace",
+        ],
+        serif: [
+          "var(--font-serif)",
+          "Fraunces",
+          "ui-serif",
+          "Georgia",
+          "serif",
         ],
       },
       borderRadius: {
